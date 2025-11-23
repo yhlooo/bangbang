@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"text/template"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/yhlooo/bangbang/pkg/servers"
 )
 
 // NewGlobalOptions 创建一个默认 GlobalOptions
@@ -82,11 +85,23 @@ func NewCommand(name string) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
+			return run(cmd.Context())
 		},
 	}
 
 	globalOpts.AddPFlags(cmd.PersistentFlags())
 
 	return cmd
+}
+
+// run 运行
+func run(ctx context.Context) error {
+	done, err := servers.RunServer(ctx, servers.Options{
+		ListenAddr: ":0",
+	})
+	if err != nil {
+		return err
+	}
+	<-done
+	return nil
 }
