@@ -10,13 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-logr/logr"
 
+	"github.com/yhlooo/bangbang/pkg/chats/managers"
 	"github.com/yhlooo/bangbang/pkg/servers/chat"
 	"github.com/yhlooo/bangbang/pkg/servers/common"
 )
 
 // Options 选项
 type Options struct {
-	ListenAddr string
+	ListenAddr  string
+	ChatManager managers.Manager
 }
 
 // Complete 补全选项
@@ -32,7 +34,7 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 
 	logger := logr.FromContextOrDiscard(ctx)
 
-	r := newGin(ctx)
+	r := newGin(ctx, opts.ChatManager)
 	srv := &http.Server{
 		Handler: r,
 	}
@@ -60,7 +62,7 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 	return done, nil
 }
 
-func newGin(reqCTX context.Context) *gin.Engine {
+func newGin(reqCTX context.Context, mgr managers.Manager) *gin.Engine {
 	r := gin.Default()
 	r.ContextWithFallback = true
 
@@ -71,16 +73,20 @@ func newGin(reqCTX context.Context) *gin.Engine {
 
 	chatV1Group := r.Group("/chat/v1")
 
-	chatServer := chat.NewServer()
+	chatServer := chat.NewServer(mgr)
 
 	// 获取房间信息
 	chatV1Group.GET("/rooms/:roomUID", typedHandler(chatServer.GetRoom))
-	// 创建信道（加入房间）
-	chatV1Group.POST("/rooms/:roomUID/channels", typedHandler(chatServer.CreateChannel))
-	// 列出成员
+	// 创建房间成员（加入房间）
+	chatV1Group.POST("/rooms/:roomUID/members", typedHandler(chatServer.CreateRoomMember))
+	// 列出房间成员
 	chatV1Group.GET("/rooms/:roomUID/members", typedHandler(chatServer.ListMembers))
-	// 获取成员信息
-	chatV1Group.GET("/rooms/:roomUID/members/:memberUID", typedHandler(chatServer.GetMember))
+	// 删除房间成员（离开房间）
+	chatV1Group.DELETE("/rooms/:roomUID/members/:memberID", typedHandler(chatServer.DeleteRoomMember))
+	// 创建消息（发送消息）
+	chatV1Group.POST("/rooms/:roomUID/messages", typedHandler(chatServer.CreateMessage))
+	// 监听消息
+	chatV1Group.GET("/rooms/:roomUID/messages", typedHandler(chatServer.ListenMessages))
 
 	return r
 }

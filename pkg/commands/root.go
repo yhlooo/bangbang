@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/yhlooo/bangbang/pkg/chats/managers"
 	"github.com/yhlooo/bangbang/pkg/servers"
 )
 
@@ -97,7 +98,8 @@ func NewCommand(name string) *cobra.Command {
 // run 运行
 func run(ctx context.Context) error {
 	done, err := servers.RunServer(ctx, servers.Options{
-		ListenAddr: ":0",
+		ListenAddr:  ":0",
+		ChatManager: managers.NewManager(),
 	})
 	if err != nil {
 		return err

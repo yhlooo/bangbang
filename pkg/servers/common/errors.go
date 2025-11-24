@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	ReasonOk                     = "Ok"
 	ErrReasonBadRequest          = "BadRequest"
 	ErrReasonInternalServerError = "InternalServerError"
 )
@@ -30,8 +31,8 @@ func StatusFromError(ctx context.Context, err error) *metav1.Status {
 	return NewInternalServerError(ctx, err.Error())
 }
 
-// NewError 创建错误
-func NewError(ctx context.Context, code int, reason, message string) *metav1.Status {
+// NewStatus 创建 *metav1.Status
+func NewStatus(ctx context.Context, code int, reason, message string) *metav1.Status {
 	return &metav1.Status{
 		APIMeta: metav1.NewAPIMeta(),
 		Meta:    metav1.ObjectMeta{UID: RequestIDFromContext(ctx)},
@@ -41,12 +42,17 @@ func NewError(ctx context.Context, code int, reason, message string) *metav1.Sta
 	}
 }
 
+// NewOkStatus 创建正常状态
+func NewOkStatus(ctx context.Context) *metav1.Status {
+	return NewStatus(ctx, http.StatusOK, ReasonOk, "")
+}
+
 // NewBadRequestError 创建 BadRequest 错误
 func NewBadRequestError(ctx context.Context, message string) *metav1.Status {
-	return NewError(ctx, http.StatusBadRequest, ErrReasonBadRequest, message)
+	return NewStatus(ctx, http.StatusBadRequest, ErrReasonBadRequest, message)
 }
 
 // NewInternalServerError 创建 InternalServerError 错误
 func NewInternalServerError(ctx context.Context, message string) *metav1.Status {
-	return NewError(ctx, http.StatusInternalServerError, ErrReasonInternalServerError, message)
+	return NewStatus(ctx, http.StatusInternalServerError, ErrReasonInternalServerError, message)
 }

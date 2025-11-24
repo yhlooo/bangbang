@@ -25,7 +25,7 @@ func notify(parent context.Context, signals ...os.Signal) (context.Context, cont
 	ctx, cancel := context.WithCancel(parent)
 
 	// 绑定信号通知
-	ch := make(chan os.Signal)
+	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, signals...)
 
 	if ctx.Err() == nil {
