@@ -12,5 +12,5 @@ type User struct {
 type UserList struct {
 	metav1.APIMeta
 
-	Items []User `json:"items,omitempty"`
+	Items []User `json:"items"`
 }

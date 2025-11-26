@@ -97,9 +97,22 @@ func NewCommand(name string) *cobra.Command {
 
 // run 运行
 func run(ctx context.Context) error {
+	logger := logr.FromContextOrDiscard(ctx)
+
+	mgr := managers.NewManager()
+	room, err := mgr.CreateRoom(ctx)
+	if err != nil {
+		return fmt.Errorf("create room error: %w", err)
+	}
+	roomInfo, err := room.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("get room info error: %w", err)
+	}
+	logger.Info(fmt.Sprintf("room: %s", roomInfo.UID))
+
 	done, err := servers.RunServer(ctx, servers.Options{
 		ListenAddr:  ":0",
-		ChatManager: managers.NewManager(),
+		ChatManager: mgr,
 	})
 	if err != nil {
 		return err

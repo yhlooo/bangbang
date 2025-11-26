@@ -34,6 +34,10 @@ func (mgr *defaultManager) CreateRoom(_ context.Context) (rooms.Room, error) {
 
 	mgr.lock.Lock()
 	defer mgr.lock.Unlock()
+
+	if mgr.rooms == nil {
+		mgr.rooms = make(map[string]rooms.Room)
+	}
 	mgr.rooms[uid] = room
 
 	return room, nil

@@ -2,11 +2,11 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/render"
 	"github.com/go-logr/logr"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
@@ -44,7 +44,7 @@ type CreateMessageRequest struct {
 
 // Body 返回 body 部分字段
 func (req *CreateMessageRequest) Body() interface{} {
-	return req.Message
+	return &req.Message
 }
 
 // CreateMemberRequest 创建成员请求
@@ -55,7 +55,7 @@ type CreateMemberRequest struct {
 
 // Body 返回 body 部分字段
 func (req *CreateMemberRequest) Body() interface{} {
-	return req.User
+	return &req.User
 }
 
 // DeleteMemberRequest 删除成员请求
@@ -211,14 +211,24 @@ func (s *chatServer) ListenMessages(ctx context.Context, req *GetRoomRequest) (*
 		return nil, fmt.Errorf("require *gin.Context")
 	}
 
+	// 写响应头
+	logger.Info("start listening messages ...")
 	ginCTX.Header("Transfer-Encoding", "chunked")
-	ginCTX.Writer.WriteHeader(http.StatusOK)
+	ginCTX.Status(http.StatusOK)
+	ginCTX.Writer.Flush()
 
 	// 流式传输消息
 	for msg := range ch {
-		if err := (render.JSON{Data: msg}).Render(ginCTX.Writer); err != nil {
+		logger.Info(fmt.Sprintf("send message %q to client", msg.Meta.UID))
+		raw, err := json.Marshal(msg)
+		if err != nil {
+			return nil, fmt.Errorf("marshal message %q to json error: %w", msg.Meta.UID, err)
+		}
+		_, err = fmt.Fprintln(ginCTX.Writer, string(raw))
+		if err != nil {
 			return nil, fmt.Errorf("write message %q to response error: %w", msg.Meta.UID, err)
 		}
+		ginCTX.Writer.Flush()
 	}
 
 	return common.NewOkStatus(ctx), nil
