@@ -12,25 +12,34 @@ import (
 
 // NewManager 创建聊天管理器
 func NewManager() Manager {
-	return &defaultManager{
-		uid: uuid.New().String(),
+	mgrID := uuid.New().String()
+	defaultRoomID := uuid.New().String()
+	defaultRoom := rooms.NewLocalRoom(defaultRoomID, mgrID)
+	mgr := &defaultManager{
+		uid:           mgrID,
+		defaultRoomID: defaultRoomID,
+		rooms: map[string]rooms.Room{
+			defaultRoomID: defaultRoom,
+		},
 	}
+	return mgr
 }
 
 // defaultManager 是 Manager 的默认实现
 type defaultManager struct {
 	uid string
 
-	lock  sync.RWMutex
-	rooms map[string]rooms.Room
+	lock          sync.RWMutex
+	defaultRoomID string
+	rooms         map[string]rooms.Room
 }
 
 var _ Manager = (*defaultManager)(nil)
 
-// CreateRoom 创建房间
-func (mgr *defaultManager) CreateRoom(_ context.Context) (rooms.Room, error) {
+// CreateLocalRoom 创建房间
+func (mgr *defaultManager) CreateLocalRoom(_ context.Context) (rooms.Room, error) {
 	uid := uuid.New().String()
-	room := rooms.NewRoom(uid, mgr.uid)
+	room := rooms.NewLocalRoom(uid, mgr.uid)
 
 	mgr.lock.Lock()
 	defer mgr.lock.Unlock()
@@ -43,8 +52,12 @@ func (mgr *defaultManager) CreateRoom(_ context.Context) (rooms.Room, error) {
 	return room, nil
 }
 
-// GetRoom 获取房间
-func (mgr *defaultManager) GetRoom(_ context.Context, uid string) (rooms.Room, error) {
+// GetLocalRoom 获取房间
+func (mgr *defaultManager) GetLocalRoom(_ context.Context, uid string) (rooms.Room, error) {
+	if uid == DefaultRoomID {
+		uid = mgr.defaultRoomID
+	}
+
 	mgr.lock.RLock()
 	defer mgr.lock.RUnlock()
 
@@ -56,8 +69,12 @@ func (mgr *defaultManager) GetRoom(_ context.Context, uid string) (rooms.Room, e
 	return room, nil
 }
 
-// DeleteRoom 删除房间
-func (mgr *defaultManager) DeleteRoom(ctx context.Context, uid string) error {
+// DeleteLocalRoom 删除房间
+func (mgr *defaultManager) DeleteLocalRoom(ctx context.Context, uid string) error {
+	if uid == DefaultRoomID || uid == mgr.defaultRoomID {
+		return fmt.Errorf("cannot delete default room")
+	}
+
 	mgr.lock.Lock()
 	defer mgr.lock.Unlock()
 

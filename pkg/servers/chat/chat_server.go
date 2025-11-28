@@ -81,7 +81,7 @@ func (s *chatServer) GetRoom(ctx context.Context, req *GetRoomRequest) (*chatv1.
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("get room: %s", req.RoomUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}
@@ -110,7 +110,7 @@ func (s *chatServer) CreateRoomMember(ctx context.Context, req *CreateMemberRequ
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("create member in room: %s", req.RoomUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}
@@ -127,7 +127,7 @@ func (s *chatServer) ListMembers(ctx context.Context, req *GetRoomRequest) (*cha
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("list room members: %s", req.RoomUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}
@@ -161,7 +161,7 @@ func (s *chatServer) DeleteRoomMember(ctx context.Context, req *DeleteMemberRequ
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("delete member in room %q: %s", req.RoomUID, req.MemberUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}
@@ -178,7 +178,7 @@ func (s *chatServer) CreateMessage(ctx context.Context, req *CreateMessageReques
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("create message in room : %s", req.RoomUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}
@@ -195,7 +195,7 @@ func (s *chatServer) ListenMessages(ctx context.Context, req *GetRoomRequest) (*
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("listen messages in room: %s", req.RoomUID))
 
-	room, err := s.mgr.GetRoom(ctx, req.RoomUID)
+	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
 	if err != nil {
 		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
 	}

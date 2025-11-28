@@ -11,16 +11,16 @@ import (
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 )
 
-// NewRoom 创建房间
-func NewRoom(uid, ownerUID string) Room {
-	return &defaultRoom{
+// NewLocalRoom 创建本地房间实例
+func NewLocalRoom(uid, ownerUID string) Room {
+	return &localRoom{
 		uid:      uid,
 		ownerUID: ownerUID,
 	}
 }
 
-// defaultRoom 是 Room 的默认实现
-type defaultRoom struct {
+// localRoom 是 Room 的本地实现
+type localRoom struct {
 	uid, ownerUID string
 
 	lock sync.RWMutex
@@ -31,10 +31,10 @@ type defaultRoom struct {
 	channels map[chan *chatv1.Message]struct{}
 }
 
-var _ Room = (*defaultRoom)(nil)
+var _ Room = (*localRoom)(nil)
 
 // Info 获取房间信息
-func (r *defaultRoom) Info(_ context.Context) (*RoomInfo, error) {
+func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -55,7 +55,7 @@ func (r *defaultRoom) Info(_ context.Context) (*RoomInfo, error) {
 }
 
 // Join 加入房间
-func (r *defaultRoom) Join(_ context.Context, userUID string) error {
+func (r *localRoom) Join(_ context.Context, userUID string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -72,7 +72,7 @@ func (r *defaultRoom) Join(_ context.Context, userUID string) error {
 }
 
 // Leave 离开房间
-func (r *defaultRoom) Leave(_ context.Context, userUID string) error {
+func (r *localRoom) Leave(_ context.Context, userUID string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -82,7 +82,7 @@ func (r *defaultRoom) Leave(_ context.Context, userUID string) error {
 }
 
 // CreateMessage 创建消息
-func (r *defaultRoom) CreateMessage(_ context.Context, msg *chatv1.Message) error {
+func (r *localRoom) CreateMessage(_ context.Context, msg *chatv1.Message) error {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -99,7 +99,7 @@ func (r *defaultRoom) CreateMessage(_ context.Context, msg *chatv1.Message) erro
 }
 
 // Listen 获取监听消息的信道
-func (r *defaultRoom) Listen(_ context.Context) (ch <-chan *chatv1.Message, stop func(), err error) {
+func (r *localRoom) Listen(_ context.Context) (ch <-chan *chatv1.Message, stop func(), err error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -117,7 +117,7 @@ func (r *defaultRoom) Listen(_ context.Context) (ch <-chan *chatv1.Message, stop
 }
 
 // stopListen 停止监听消息
-func (r *defaultRoom) stopListen(ch chan *chatv1.Message) func() {
+func (r *localRoom) stopListen(ch chan *chatv1.Message) func() {
 	return func() {
 		r.lock.Lock()
 		defer r.lock.Unlock()
@@ -126,7 +126,7 @@ func (r *defaultRoom) stopListen(ch chan *chatv1.Message) func() {
 }
 
 // Close 关闭
-func (r *defaultRoom) Close(_ context.Context) error {
+func (r *localRoom) Close(_ context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
