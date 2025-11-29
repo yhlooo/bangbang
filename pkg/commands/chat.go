@@ -1,0 +1,97 @@
+package commands
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"text/template"
+
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/yhlooo/bangbang/pkg/chats/keys"
+	"github.com/yhlooo/bangbang/pkg/managers"
+	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
+)
+
+// NewChatOptions 创建默认 ChatOptions
+func NewChatOptions() ChatOptions {
+	return ChatOptions{
+		HTTPAddr:        ":0",
+		TransponderAddr: "224.0.0.1:7134",
+	}
+}
+
+// ChatOptions 选项
+type ChatOptions struct {
+	// HTTP 服务监听地址
+	HTTPAddr string
+	// 应答器地址
+	TransponderAddr string
+}
+
+// AddPFlags 将选项绑定到命令行参数
+func (o *ChatOptions) AddPFlags(fs *pflag.FlagSet) {
+	fs.StringVarP(&o.HTTPAddr, "listen", "l", o.HTTPAddr, "HTTP listen address")
+	fs.StringVar(&o.TransponderAddr, "transponder-addr", o.TransponderAddr, "Transponder address")
+}
+
+var chatExampleTpl = template.Must(template.New("ChatCommand").
+	Parse(`# Create or join a room using the specified PIN code. (e.g. 7134)
+{{ .CommandName }} 7134
+`))
+
+func newChatCommand(parentName string) *cobra.Command {
+	exampleBuff := &bytes.Buffer{}
+	if err := chatExampleTpl.Execute(exampleBuff, map[string]interface{}{
+		"CommandName": parentName + " chat",
+	}); err != nil {
+		panic(err)
+	}
+
+	opts := NewChatOptions()
+
+	cmd := &cobra.Command{
+		Use:     "chat PIN",
+		Short:   "Start chat",
+		Example: exampleBuff.String(),
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runChat(cmd.Context(), opts, keys.HashKey(args[0]))
+		},
+	}
+
+	opts.AddPFlags(cmd.Flags())
+
+	return cmd
+}
+
+// run 运行
+func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
+	selfUID := uuid.New().String()
+
+	mgr, err := managers.NewManager(managers.Options{
+		Key:             key,
+		OwnerUID:        selfUID,
+		HTTPAddr:        opts.HTTPAddr,
+		TransponderAddr: opts.TransponderAddr,
+	})
+	if err != nil {
+		return fmt.Errorf("init manager error: %w", err)
+	}
+
+	// 运行服务
+	if _, err := mgr.StartServer(ctx); err != nil {
+		return fmt.Errorf("run server error: %w", err)
+	}
+
+	// 运行发布器
+	if err := mgr.StartTransponder(ctx); err != nil {
+		return fmt.Errorf("run transponder error: %w", err)
+	}
+
+	// 运行 UI
+	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), selfUID)
+	return ui.Run(ctx)
+}
