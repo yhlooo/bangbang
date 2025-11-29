@@ -56,10 +56,14 @@ func newScanCommand() *cobra.Command {
 			}
 
 			d := discovery.NewUDPDiscoverer(addr)
+			keySign := ""
+			if opts.Key != "" {
+				keySign = keys.HashKey(opts.Key).PublishedSignature()
+			}
 
 			ticker := time.NewTicker(opts.Duration + time.Second)
 			for {
-				ret, err := d.Search(ctx, keys.HashKey(opts.Key).PublishedSignature(), discovery.SearchOptions{
+				ret, err := d.Search(ctx, keySign, discovery.SearchOptions{
 					Duration:          opts.Duration,
 					RequestInterval:   opts.RequestInterval,
 					CheckAvailability: opts.CheckAvailability,
@@ -93,6 +97,9 @@ func showScanResult(result []discovery.Room) {
 		fmt.Printf("      UID : %s\n", room.Info.Meta.UID)
 		if ownerUID := room.Info.Owner.Meta.UID; ownerUID != "" {
 			fmt.Printf("    Owner : %s\n", ownerUID)
+		}
+		if room.Info.KeySignature != "" {
+			fmt.Printf(" Key Sign : %s\n", room.Info.KeySignature)
 		}
 		if len(room.Info.Endpoints) > 0 {
 			fmt.Println("Endpoints :")
