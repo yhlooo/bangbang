@@ -34,6 +34,10 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 
 	logger := logr.FromContextOrDiscard(ctx)
 
+	if !logger.V(1).Enabled() {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	r := newGin(ctx, opts.ChatManager)
 	srv := &http.Server{
 		Handler: r,
@@ -63,7 +67,8 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 }
 
 func newGin(reqCTX context.Context, mgr managers.Manager) *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 	r.ContextWithFallback = true
 
 	r.Use(

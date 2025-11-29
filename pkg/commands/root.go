@@ -1,12 +1,9 @@
 package commands
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"text/template"
 
 	"github.com/bombsimon/logrusr/v4"
@@ -16,11 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
-	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/managers"
 	"github.com/yhlooo/bangbang/pkg/chats/rooms"
 	"github.com/yhlooo/bangbang/pkg/servers"
+	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
 )
 
 // NewGlobalOptions 创建一个默认 GlobalOptions
@@ -103,7 +99,7 @@ func NewCommand(name string) *cobra.Command {
 			logrusLogger := logrus.New()
 			switch globalOpts.Verbosity {
 			case 0:
-				logrusLogger.Level = logrus.InfoLevel
+				logrusLogger.Level = logrus.ErrorLevel
 			case 1:
 				logrusLogger.Level = logrus.DebugLevel
 			default:
@@ -151,55 +147,14 @@ func runInHostMode(ctx context.Context, opts Options) error {
 		return fmt.Errorf("run server error: %w", err)
 	}
 
-	return runChatUI(ctx, room, uuid.New().String())
+	ui := uitea.NewChatUI(room, uuid.New().String())
+	return ui.Run(ctx)
 }
 
 // runInGuestMode 以客人模式运行
 func runInGuestMode(ctx context.Context, opts Options) error {
 	room := rooms.NewRemoteRoom("http://"+opts.Address, managers.DefaultRoomID)
-	return runChatUI(ctx, room, uuid.New().String())
-}
 
-// runChatUI 运行聊天 UI
-func runChatUI(ctx context.Context, room rooms.Room, selfUID string) error {
-	logger := logr.FromContextOrDiscard(ctx)
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	msgCh, stop, err := room.Listen(ctx)
-	if err != nil {
-		return fmt.Errorf("listen room error: %w", err)
-	}
-	defer stop()
-
-	go func() {
-		defer stop()
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			if scanner.Err() != nil {
-				return
-			}
-
-			line := scanner.Text()
-			line = strings.TrimSuffix(line, "\n")
-			err = room.CreateMessage(ctx, &chatv1.Message{
-				APIMeta: metav1.NewAPIMeta(),
-				From: metav1.ObjectMeta{
-					UID: selfUID,
-				},
-				Content: chatv1.MessageContent{
-					Text: &chatv1.TextMessageContent{Content: line},
-				},
-			})
-			if err != nil {
-				logger.Error(err, "create message error")
-			}
-		}
-	}()
-
-	for msg := range msgCh {
-		fmt.Printf("%s: %s\n", msg.From.UID, msg.Content.Text.Content)
-	}
-
-	return nil
+	ui := uitea.NewChatUI(room, uuid.New().String())
+	return ui.Run(ctx)
 }
