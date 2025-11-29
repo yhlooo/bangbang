@@ -22,5 +22,7 @@ type Room interface {
 
 // RoomInfo 房间信息
 type RoomInfo struct {
-	UID string
+	UID                   string
+	OwnerUID              string
+	PublishedKeySignature string
 }

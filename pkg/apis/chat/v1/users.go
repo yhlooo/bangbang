@@ -2,6 +2,11 @@ package v1
 
 import metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 
+const (
+	KindUser     = "User"
+	KindUserList = "UserList"
+)
+
 // User 用户
 type User struct {
 	metav1.APIMeta

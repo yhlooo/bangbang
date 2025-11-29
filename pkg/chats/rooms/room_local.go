@@ -8,18 +8,23 @@ import (
 	"github.com/google/uuid"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
+	"github.com/yhlooo/bangbang/pkg/chats/keys"
 )
 
 // NewLocalRoom 创建本地房间实例
-func NewLocalRoom() Room {
+func NewLocalRoom(key keys.HashKey, ownerUID string) Room {
 	return &localRoom{
-		uid: uuid.New().String(),
+		uid:      uuid.New().String(),
+		ownerUID: ownerUID,
+		key:      key.Copy(),
 	}
 }
 
 // localRoom 是 Room 的本地实现
 type localRoom struct {
-	uid string
+	uid      string
+	ownerUID string
+	key      keys.HashKey
 
 	lock sync.RWMutex
 
@@ -31,7 +36,11 @@ var _ Room = (*localRoom)(nil)
 
 // Info 获取房间信息
 func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
-	return &RoomInfo{UID: r.uid}, nil
+	return &RoomInfo{
+		UID:                   r.uid,
+		OwnerUID:              r.ownerUID,
+		PublishedKeySignature: r.key.PublishedSignature(),
+	}, nil
 }
 
 // CreateMessage 创建消息

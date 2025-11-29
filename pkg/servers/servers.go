@@ -10,15 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-logr/logr"
 
-	"github.com/yhlooo/bangbang/pkg/chats/managers"
+	"github.com/yhlooo/bangbang/pkg/chats/rooms"
 	"github.com/yhlooo/bangbang/pkg/servers/chat"
 	"github.com/yhlooo/bangbang/pkg/servers/common"
 )
 
 // Options 选项
 type Options struct {
-	ListenAddr  string
-	ChatManager managers.Manager
+	ListenAddr string
+	Room       rooms.Room
 }
 
 // Complete 补全选项
@@ -29,7 +29,7 @@ func (o *Options) Complete() {
 }
 
 // RunServer 运行服务
-func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
+func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, error) {
 	opts.Complete()
 
 	logger := logr.FromContextOrDiscard(ctx)
@@ -38,14 +38,14 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := newGin(ctx, opts.ChatManager)
+	r := newGin(ctx, opts.Room)
 	srv := &http.Server{
 		Handler: r,
 	}
 
 	l, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
-		return nil, fmt.Errorf("listen on %q error: %w", opts.ListenAddr, err)
+		return nil, nil, fmt.Errorf("listen on %q error: %w", opts.ListenAddr, err)
 	}
 	logger.Info(fmt.Sprintf("serve on %s", l.Addr().String()))
 
@@ -63,10 +63,10 @@ func RunServer(ctx context.Context, opts Options) (<-chan struct{}, error) {
 		}
 	}()
 
-	return done, nil
+	return l.Addr(), done, nil
 }
 
-func newGin(reqCTX context.Context, mgr managers.Manager) *gin.Engine {
+func newGin(reqCTX context.Context, room rooms.Room) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.ContextWithFallback = true
@@ -78,7 +78,7 @@ func newGin(reqCTX context.Context, mgr managers.Manager) *gin.Engine {
 
 	chatV1Group := r.Group("/chat/v1")
 
-	chatServer := chat.NewServer(mgr)
+	chatServer := chat.NewServer(room)
 
 	chatV1Group.GET("/info", typedHandler(chatServer.GetInfo))
 	// 创建消息（发送消息）

@@ -34,7 +34,7 @@ func StatusFromError(ctx context.Context, err error) *metav1.Status {
 // NewStatus 创建 *metav1.Status
 func NewStatus(ctx context.Context, code int, reason, message string) *metav1.Status {
 	return &metav1.Status{
-		APIMeta: metav1.NewAPIMeta(),
+		APIMeta: metav1.NewAPIMeta(metav1.KindStatus),
 		Meta:    metav1.ObjectMeta{UID: RequestIDFromContext(ctx)},
 		Code:    code,
 		Reason:  reason,

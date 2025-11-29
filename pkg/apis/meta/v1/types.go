@@ -4,19 +4,34 @@ import (
 	"fmt"
 )
 
-// Version 版本
-const Version = "v1"
+const (
+	// Version 版本
+	Version = "v1"
+	// KindStatus 状态
+	KindStatus = "Status"
+)
 
 // APIMeta API 元信息
 type APIMeta struct {
 	// API 版本
 	Version string `json:"version"`
+	// 类型
+	Kind string `json:"kind"`
+}
+
+// IsKind 判断是否指定类型
+func (m APIMeta) IsKind(kind string) bool {
+	if m.Version != Version {
+		return false
+	}
+	return m.Kind == kind
 }
 
 // NewAPIMeta 创建 API 元信息
-func NewAPIMeta() APIMeta {
+func NewAPIMeta(kind string) APIMeta {
 	return APIMeta{
 		Version: Version,
+		Kind:    kind,
 	}
 }
 

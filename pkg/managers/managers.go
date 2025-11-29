@@ -8,10 +8,10 @@ import (
 
 // Manager 聊天管理器
 type Manager interface {
-	// 房主方法
-
 	// SelfRoom 获取自己主持的房间
 	SelfRoom(ctx context.Context) rooms.Room
-
-	// 客人方法
+	// StartServer 开始运行 HTTP 服务
+	StartServer(ctx context.Context) (<-chan struct{}, error)
+	// StartTransponder 开始运行应答机
+	StartTransponder(ctx context.Context) error
 }

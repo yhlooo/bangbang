@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/yhlooo/bangbang/pkg/chats/managers"
-	"github.com/yhlooo/bangbang/pkg/servers"
+	"github.com/yhlooo/bangbang/pkg/chats/keys"
+	"github.com/yhlooo/bangbang/pkg/managers"
 	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
 )
 
@@ -47,27 +47,23 @@ func (o *GlobalOptions) AddPFlags(fs *pflag.FlagSet) {
 // NewOptions 创建默认 Options
 func NewOptions() Options {
 	return Options{
-		ScanAddr:    "224.0.0.1:7134",
-		PublishAddr: "224.0.0.1:7134",
-		ListenAddr:  ":0",
+		HTTPAddr:        ":0",
+		TransponderAddr: "224.0.0.1:7134",
 	}
 }
 
 // Options 选项
 type Options struct {
-	// 扫描房间地址
-	ScanAddr string
-	// 发布房间地址
-	PublishAddr string
-	// 监听地址
-	ListenAddr string
+	// HTTP 服务监听地址
+	HTTPAddr string
+	// 应答器地址
+	TransponderAddr string
 }
 
 // AddPFlags 将选项绑定到命令行参数
 func (o *Options) AddPFlags(fs *pflag.FlagSet) {
-	fs.StringVarP(&o.ScanAddr, "scan", "s", o.ScanAddr, "Scan address")
-	fs.StringVarP(&o.PublishAddr, "publish", "p", o.PublishAddr, "Publish address")
-	fs.StringVarP(&o.ListenAddr, "listen", "l", o.ListenAddr, "Listen address")
+	fs.StringVarP(&o.HTTPAddr, "listen", "l", o.HTTPAddr, "HTTP listen address")
+	fs.StringVar(&o.TransponderAddr, "transponder-addr", o.TransponderAddr, "Transponder address")
 }
 
 var rootExampleTpl = template.Must(template.New("RootCommand").
@@ -115,7 +111,7 @@ func NewCommand(name string) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd.Context(), opts)
+			return run(cmd.Context(), opts, keys.HashKey(args[0]))
 		},
 	}
 
@@ -130,19 +126,30 @@ func NewCommand(name string) *cobra.Command {
 }
 
 // run 运行
-func run(ctx context.Context, opts Options) error {
-	mgr := managers.NewManager()
+func run(ctx context.Context, opts Options, key keys.HashKey) error {
+	selfUID := uuid.New().String()
 
-	// 运行服务
-	_, err := servers.RunServer(ctx, servers.Options{
-		ListenAddr:  opts.ListenAddr,
-		ChatManager: mgr,
+	mgr, err := managers.NewManager(managers.Options{
+		Key:             key,
+		OwnerUID:        selfUID,
+		HTTPAddr:        opts.HTTPAddr,
+		TransponderAddr: opts.TransponderAddr,
 	})
 	if err != nil {
+		return fmt.Errorf("init manager error: %w", err)
+	}
+
+	// 运行服务
+	if _, err := mgr.StartServer(ctx); err != nil {
 		return fmt.Errorf("run server error: %w", err)
 	}
 
+	// 运行发布器
+	if err := mgr.StartTransponder(ctx); err != nil {
+		return fmt.Errorf("run transponder error: %w", err)
+	}
+
 	// 运行 UI
-	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), uuid.New().String())
+	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), selfUID)
 	return ui.Run(ctx)
 }

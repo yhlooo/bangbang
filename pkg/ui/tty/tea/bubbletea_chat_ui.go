@@ -24,6 +24,7 @@ func NewChatUI(room rooms.Room, selfUID string) *ChatUI {
 	}
 }
 
+// ChatUI 聊天 UI
 type ChatUI struct {
 	ctx context.Context
 
@@ -98,7 +99,7 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ui, tea.Quit
 		case tea.KeyEnter:
 			err := ui.room.CreateMessage(ctx, &chatv1.Message{
-				APIMeta: metav1.NewAPIMeta(),
+				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
 				From: metav1.ObjectMeta{
 					UID: ui.selfUID,
 				},

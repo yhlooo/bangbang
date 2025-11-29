@@ -2,6 +2,8 @@ package v1
 
 import metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 
+const KindMessage = "Message"
+
 // Message 消息
 type Message struct {
 	metav1.APIMeta

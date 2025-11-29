@@ -11,7 +11,7 @@ import (
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
-	"github.com/yhlooo/bangbang/pkg/chats/managers"
+	"github.com/yhlooo/bangbang/pkg/chats/rooms"
 	"github.com/yhlooo/bangbang/pkg/servers/common"
 )
 
@@ -38,15 +38,15 @@ func (req *CreateMessageRequest) Body() interface{} {
 }
 
 // NewServer 创建 Server
-func NewServer(mgr managers.Manager) Server {
+func NewServer(room rooms.Room) Server {
 	return &chatServer{
-		mgr: mgr,
+		room: room,
 	}
 }
 
 // chatServer Server 的默认实现
 type chatServer struct {
-	mgr managers.Manager
+	room rooms.Room
 }
 
 // GetInfo 获取房间信息
@@ -54,14 +54,18 @@ func (s *chatServer) GetInfo(ctx context.Context, _ *EmptyRequest) (*chatv1.Room
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info("get room info")
 
-	room := s.mgr.SelfRoom(ctx)
-	info, err := room.Info(ctx)
+	info, err := s.room.Info(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get room info error: %w", err)
 	}
 	return &chatv1.Room{
-		APIMeta: metav1.NewAPIMeta(),
+		APIMeta: metav1.NewAPIMeta(chatv1.KindRoom),
 		Meta:    metav1.ObjectMeta{UID: info.UID},
+		Owner: chatv1.User{
+			APIMeta: metav1.NewAPIMeta(chatv1.KindUser),
+			Meta:    metav1.ObjectMeta{UID: info.OwnerUID},
+		},
+		KeySignature: info.PublishedKeySignature,
 	}, nil
 }
 
@@ -70,8 +74,7 @@ func (s *chatServer) CreateMessage(ctx context.Context, req *CreateMessageReques
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info("create message in room")
 
-	room := s.mgr.SelfRoom(ctx)
-	if err := room.CreateMessage(ctx, &req.Message); err != nil {
+	if err := s.room.CreateMessage(ctx, &req.Message); err != nil {
 		return nil, fmt.Errorf("create message in room error: %w", err)
 	}
 
@@ -83,8 +86,7 @@ func (s *chatServer) ListenMessages(ctx context.Context, _ *EmptyRequest) (*meta
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info("listen messages in room")
 
-	room := s.mgr.SelfRoom(ctx)
-	ch, stop, err := room.Listen(ctx)
+	ch, stop, err := s.room.Listen(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listen message in room error: %w", err)
 	}
