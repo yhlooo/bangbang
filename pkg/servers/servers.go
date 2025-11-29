@@ -80,18 +80,11 @@ func newGin(reqCTX context.Context, mgr managers.Manager) *gin.Engine {
 
 	chatServer := chat.NewServer(mgr)
 
-	// 获取房间信息
-	chatV1Group.GET("/rooms/:roomUID", typedHandler(chatServer.GetRoom))
-	// 创建房间成员（加入房间）
-	chatV1Group.POST("/rooms/:roomUID/members", typedHandler(chatServer.CreateRoomMember))
-	// 列出房间成员
-	chatV1Group.GET("/rooms/:roomUID/members", typedHandler(chatServer.ListMembers))
-	// 删除房间成员（离开房间）
-	chatV1Group.DELETE("/rooms/:roomUID/members/:memberID", typedHandler(chatServer.DeleteRoomMember))
+	chatV1Group.GET("/info", typedHandler(chatServer.GetInfo))
 	// 创建消息（发送消息）
-	chatV1Group.POST("/rooms/:roomUID/messages", typedHandler(chatServer.CreateMessage))
+	chatV1Group.POST("/messages", typedHandler(chatServer.CreateMessage))
 	// 监听消息
-	chatV1Group.GET("/rooms/:roomUID/messages", typedHandler(chatServer.ListenMessages))
+	chatV1Group.GET("/messages", typedHandler(chatServer.ListenMessages))
 
 	return r
 }

@@ -10,15 +10,8 @@ import (
 type Manager interface {
 	// 房主方法
 
-	// CreateLocalRoom 创建房间
-	CreateLocalRoom(ctx context.Context) (rooms.Room, error)
-	// GetLocalRoom 获取房间
-	GetLocalRoom(ctx context.Context, uid string) (rooms.Room, error)
-	// DeleteLocalRoom 删除房间
-	DeleteLocalRoom(ctx context.Context, uid string) error
+	// SelfRoom 获取自己主持的房间
+	SelfRoom(ctx context.Context) rooms.Room
 
 	// 客人方法
 }
-
-// DefaultRoomID 默认房间 ID
-const DefaultRoomID = "default"

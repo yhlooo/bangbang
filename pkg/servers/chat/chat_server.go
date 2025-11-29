@@ -17,51 +17,24 @@ import (
 
 // Server 聊天服务
 type Server interface {
-	// GetRoom 获取房间信息
-	GetRoom(ctx context.Context, req *GetRoomRequest) (*chatv1.Room, error)
-	// CreateRoomMember 创建房间成员
-	CreateRoomMember(ctx context.Context, req *CreateMemberRequest) (*chatv1.User, error)
-	// DeleteRoomMember 删除房间成员
-	DeleteRoomMember(ctx context.Context, req *DeleteMemberRequest) (*metav1.Status, error)
+	// GetInfo 获取房间信息
+	GetInfo(ctx context.Context, req *EmptyRequest) (*chatv1.Room, error)
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, req *CreateMessageRequest) (*chatv1.Message, error)
 	// ListenMessages 监听消息
-	ListenMessages(ctx context.Context, req *GetRoomRequest) (*metav1.Status, error)
-	// ListMembers 列出成员
-	ListMembers(ctx context.Context, req *GetRoomRequest) (*chatv1.UserList, error)
+	ListenMessages(ctx context.Context, _ *EmptyRequest) (*metav1.Status, error)
 }
 
-// GetRoomRequest 获取房间请求
-type GetRoomRequest struct {
-	RoomUID string `uri:"roomUID" binding:"required"`
-}
+type EmptyRequest struct{}
 
 // CreateMessageRequest 创建消息请求
 type CreateMessageRequest struct {
-	RoomUID string `uri:"roomUID" binding:"required"`
 	Message chatv1.Message
 }
 
 // Body 返回 body 部分字段
 func (req *CreateMessageRequest) Body() interface{} {
 	return &req.Message
-}
-
-// CreateMemberRequest 创建成员请求
-type CreateMemberRequest struct {
-	RoomUID string `uri:"roomUID" binding:"required"`
-	User    chatv1.User
-}
-
-// Body 返回 body 部分字段
-func (req *CreateMemberRequest) Body() interface{} {
-	return &req.User
-}
-
-// DeleteMemberRequest 删除成员请求
-type DeleteMemberRequest struct {
-	RoomUID   string `uri:"roomUID" binding:"required"`
-	MemberUID string `uri:"memberUID" binding:"required"`
 }
 
 // NewServer 创建 Server
@@ -76,133 +49,44 @@ type chatServer struct {
 	mgr managers.Manager
 }
 
-// GetRoom 获取房间信息
-func (s *chatServer) GetRoom(ctx context.Context, req *GetRoomRequest) (*chatv1.Room, error) {
+// GetInfo 获取房间信息
+func (s *chatServer) GetInfo(ctx context.Context, _ *EmptyRequest) (*chatv1.Room, error) {
 	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("get room: %s", req.RoomUID))
+	logger.Info("get room info")
 
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
+	room := s.mgr.SelfRoom(ctx)
 	info, err := room.Info(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get room %q info error: %w", req.RoomUID, err)
+		return nil, fmt.Errorf("get room info error: %w", err)
 	}
-
 	return &chatv1.Room{
 		APIMeta: metav1.NewAPIMeta(),
-		Meta: metav1.ObjectMeta{
-			UID: req.RoomUID,
-		},
-		Owner: chatv1.User{
-			APIMeta: metav1.NewAPIMeta(),
-			Meta: metav1.ObjectMeta{
-				UID: info.Owner,
-			},
-		},
+		Meta:    metav1.ObjectMeta{UID: info.UID},
 	}, nil
-}
-
-// CreateRoomMember 创建房间成员
-func (s *chatServer) CreateRoomMember(ctx context.Context, req *CreateMemberRequest) (*chatv1.User, error) {
-	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("create member in room: %s", req.RoomUID))
-
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
-	if err := room.Join(ctx, req.User.Meta.UID); err != nil {
-		return nil, fmt.Errorf("join to room %q error: %w", req.RoomUID, err)
-	}
-
-	return &req.User, nil
-}
-
-// ListMembers 列出成员
-func (s *chatServer) ListMembers(ctx context.Context, req *GetRoomRequest) (*chatv1.UserList, error) {
-	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("list room members: %s", req.RoomUID))
-
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
-	info, err := room.Info(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q info error: %w", req.RoomUID, err)
-	}
-
-	var items []chatv1.User
-	if len(info.Members) > 0 {
-		items = make([]chatv1.User, 0, len(info.Members))
-		for _, member := range info.Members {
-			items = append(items, chatv1.User{
-				APIMeta: metav1.NewAPIMeta(),
-				Meta: metav1.ObjectMeta{
-					UID: member,
-				},
-			})
-		}
-	}
-
-	return &chatv1.UserList{
-		APIMeta: metav1.NewAPIMeta(),
-		Items:   items,
-	}, nil
-}
-
-// DeleteRoomMember 删除房间成员
-func (s *chatServer) DeleteRoomMember(ctx context.Context, req *DeleteMemberRequest) (*metav1.Status, error) {
-	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("delete member in room %q: %s", req.RoomUID, req.MemberUID))
-
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
-	if err := room.Leave(ctx, req.MemberUID); err != nil {
-		return nil, fmt.Errorf("leave room %q error: %w", req.RoomUID, err)
-	}
-
-	return common.NewOkStatus(ctx), nil
 }
 
 // CreateMessage 创建消息
 func (s *chatServer) CreateMessage(ctx context.Context, req *CreateMessageRequest) (*chatv1.Message, error) {
 	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("create message in room : %s", req.RoomUID))
+	logger.Info("create message in room")
 
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
+	room := s.mgr.SelfRoom(ctx)
 	if err := room.CreateMessage(ctx, &req.Message); err != nil {
-		return nil, fmt.Errorf("create message in room %q error: %w", req.RoomUID, err)
+		return nil, fmt.Errorf("create message in room error: %w", err)
 	}
 
 	return &req.Message, nil
 }
 
 // ListenMessages 监听消息
-func (s *chatServer) ListenMessages(ctx context.Context, req *GetRoomRequest) (*metav1.Status, error) {
+func (s *chatServer) ListenMessages(ctx context.Context, _ *EmptyRequest) (*metav1.Status, error) {
 	logger := logr.FromContextOrDiscard(ctx)
-	logger.Info(fmt.Sprintf("listen messages in room: %s", req.RoomUID))
+	logger.Info("listen messages in room")
 
-	room, err := s.mgr.GetLocalRoom(ctx, req.RoomUID)
-	if err != nil {
-		return nil, fmt.Errorf("get room %q error: %w", req.RoomUID, err)
-	}
-
+	room := s.mgr.SelfRoom(ctx)
 	ch, stop, err := room.Listen(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listen message in room %q error: %w", req.RoomUID, err)
+		return nil, fmt.Errorf("listen message in room error: %w", err)
 	}
 	defer stop()
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -17,20 +16,15 @@ import (
 )
 
 // NewRemoteRoom 创建远程房间实例
-func NewRemoteRoom(endpoint, uid string) Room {
-	return &remoteRoom{
-		endpoint: endpoint,
-		uid:      uid,
-	}
+func NewRemoteRoom(endpoint string) Room {
+	return &remoteRoom{endpoint: endpoint}
 }
 
 // remoteRoom 是基于 API 访问远程房间的实现的 Room
 type remoteRoom struct {
 	endpoint string
-	uid      string
 
-	lock sync.RWMutex
-
+	lock   sync.RWMutex
 	closed bool
 }
 
@@ -38,26 +32,11 @@ var _ Room = (*remoteRoom)(nil)
 
 // Info 获取房间信息
 func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
-	info := &RoomInfo{}
-	return info, r.doRequest(ctx, http.MethodGet, "", "", info)
-}
-
-// Join 加入房间
-func (r *remoteRoom) Join(ctx context.Context, userUID string) error {
-	return r.doRequest(
-		ctx,
-		http.MethodPost, "/members",
-		&chatv1.User{
-			APIMeta: metav1.NewAPIMeta(),
-			Meta:    metav1.ObjectMeta{UID: userUID},
-		},
-		nil,
-	)
-}
-
-// Leave 离开房间
-func (r *remoteRoom) Leave(ctx context.Context, userUID string) error {
-	return r.doRequest(ctx, http.MethodDelete, "/members/"+url.PathEscape(userUID), nil, nil)
+	info := &chatv1.Room{}
+	if err := r.doRequest(ctx, http.MethodGet, "/info", nil, info); err != nil {
+		return nil, err
+	}
+	return &RoomInfo{UID: info.Meta.UID}, nil
 }
 
 // CreateMessage 创建消息
@@ -196,7 +175,7 @@ func (r *remoteRoom) makeRequest(ctx context.Context, method, uri string, reqDat
 	return http.NewRequestWithContext(
 		ctx,
 		method,
-		fmt.Sprintf("%s/chat/v1/rooms/%s%s", r.endpoint, url.PathEscape(r.uid), uri),
+		fmt.Sprintf("%s/chat/v1%s", r.endpoint, uri),
 		reqBody,
 	)
 }

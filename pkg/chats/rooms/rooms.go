@@ -11,11 +11,6 @@ type Room interface {
 	// Info 获取房间信息
 	Info(ctx context.Context) (*RoomInfo, error)
 
-	// Join 加入房间
-	Join(ctx context.Context, userUID string) error
-	// Leave 离开房间
-	Leave(ctx context.Context, userUID string) error
-
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, msg *chatv1.Message) error
 	// Listen 获取监听消息的信道
@@ -27,7 +22,5 @@ type Room interface {
 
 // RoomInfo 房间信息
 type RoomInfo struct {
-	UID     string
-	Owner   string
-	Members []string
+	UID string
 }

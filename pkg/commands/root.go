@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/yhlooo/bangbang/pkg/chats/managers"
-	"github.com/yhlooo/bangbang/pkg/chats/rooms"
 	"github.com/yhlooo/bangbang/pkg/servers"
 	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
 )
@@ -45,26 +44,30 @@ func (o *GlobalOptions) AddPFlags(fs *pflag.FlagSet) {
 	fs.Uint32VarP(&o.Verbosity, "verbose", "v", o.Verbosity, "Number for the log level verbosity (0, 1, or 2)")
 }
 
+// NewOptions 创建默认 Options
 func NewOptions() Options {
 	return Options{
-		HostMode:  false,
-		GuestMode: false,
-		Address:   ":2333",
+		ScanAddr:    "224.0.0.1:7134",
+		PublishAddr: "224.0.0.1:7134",
+		ListenAddr:  ":0",
 	}
 }
 
 // Options 选项
 type Options struct {
-	HostMode  bool
-	GuestMode bool
-	Address   string
+	// 扫描房间地址
+	ScanAddr string
+	// 发布房间地址
+	PublishAddr string
+	// 监听地址
+	ListenAddr string
 }
 
 // AddPFlags 将选项绑定到命令行参数
 func (o *Options) AddPFlags(fs *pflag.FlagSet) {
-	fs.BoolVar(&o.HostMode, "host", o.HostMode, "Run in host mode")
-	fs.BoolVar(&o.GuestMode, "guest", o.GuestMode, "Run in guest mode")
-	fs.StringVar(&o.Address, "addr", o.Address, "Listen or connect address")
+	fs.StringVarP(&o.ScanAddr, "scan", "s", o.ScanAddr, "Scan address")
+	fs.StringVarP(&o.PublishAddr, "publish", "p", o.PublishAddr, "Publish address")
+	fs.StringVarP(&o.ListenAddr, "listen", "l", o.ListenAddr, "Listen address")
 }
 
 var rootExampleTpl = template.Must(template.New("RootCommand").
@@ -90,6 +93,7 @@ func NewCommand(name string) *cobra.Command {
 		Example:       exampleBuff.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.ExactArgs(1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := globalOpts.Validate(); err != nil {
 				return err
@@ -118,43 +122,27 @@ func NewCommand(name string) *cobra.Command {
 	globalOpts.AddPFlags(cmd.PersistentFlags())
 	opts.AddPFlags(cmd.Flags())
 
+	cmd.AddCommand(
+		newScanCommand(),
+	)
+
 	return cmd
 }
 
 // run 运行
 func run(ctx context.Context, opts Options) error {
-	logger := logr.FromContextOrDiscard(ctx)
-	if opts.GuestMode {
-		logger.Info("run in guest mode")
-		return runInGuestMode(ctx, opts)
-	}
-	logger.Info("run in host mode")
-	return runInHostMode(ctx, opts)
-}
-
-// runInHostMode 以房主模式运行
-func runInHostMode(ctx context.Context, opts Options) error {
 	mgr := managers.NewManager()
-	room, err := mgr.GetLocalRoom(ctx, managers.DefaultRoomID)
-	if err != nil {
-		return fmt.Errorf("get room error: %w", err)
-	}
-	_, err = servers.RunServer(ctx, servers.Options{
-		ListenAddr:  opts.Address,
+
+	// 运行服务
+	_, err := servers.RunServer(ctx, servers.Options{
+		ListenAddr:  opts.ListenAddr,
 		ChatManager: mgr,
 	})
 	if err != nil {
 		return fmt.Errorf("run server error: %w", err)
 	}
 
-	ui := uitea.NewChatUI(room, uuid.New().String())
-	return ui.Run(ctx)
-}
-
-// runInGuestMode 以客人模式运行
-func runInGuestMode(ctx context.Context, opts Options) error {
-	room := rooms.NewRemoteRoom("http://"+opts.Address, managers.DefaultRoomID)
-
-	ui := uitea.NewChatUI(room, uuid.New().String())
+	// 运行 UI
+	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), uuid.New().String())
 	return ui.Run(ctx)
 }
