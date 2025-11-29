@@ -2,10 +2,10 @@ package managers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 
 	"github.com/go-logr/logr"
 
@@ -13,6 +13,7 @@ import (
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/chats/rooms"
+	"github.com/yhlooo/bangbang/pkg/discovery"
 	"github.com/yhlooo/bangbang/pkg/servers"
 )
 
@@ -23,8 +24,8 @@ type Options struct {
 	OwnerUID string
 	// HTTP 监听地址
 	HTTPAddr string
-	// 应答器地址
-	TransponderAddr string
+	// 服务发现地址
+	DiscoveryAddr string
 }
 
 // Validate 校验选项
@@ -35,8 +36,8 @@ func (o *Options) Validate() error {
 	if o.HTTPAddr == "" {
 		return errors.New(".HTTPAddr is required")
 	}
-	if o.TransponderAddr == "" {
-		return errors.New(".TransponderAddr is required")
+	if o.DiscoveryAddr == "" {
+		return errors.New(".DiscoveryAddr is required")
 	}
 	return nil
 }
@@ -83,31 +84,17 @@ func (mgr *defaultManager) StartServer(ctx context.Context) (<-chan struct{}, er
 
 // StartTransponder 开始运行应答机
 func (mgr *defaultManager) StartTransponder(ctx context.Context) error {
-	logger := logr.FromContextOrDiscard(ctx)
-
-	addr, err := net.ResolveUDPAddr("udp", mgr.opts.TransponderAddr)
-	if err != nil {
-		return fmt.Errorf("resolve udp address %q error: %w", mgr.opts.TransponderAddr, err)
-	}
-
-	writeConn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("dial udp %q error: %w", addr.String(), err)
-	}
-
-	readConn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return fmt.Errorf("listen udp %q error: %w", addr.String(), err)
-	}
-
 	selfRoom, err := mgr.SelfRoom(ctx).Info(ctx)
 	if err != nil {
 		return fmt.Errorf("get self room info error: %w", err)
 	}
 
-	var endpoints []string
+	endpoints, err := mgr.getEndpoints(ctx)
+	if err != nil {
+		return fmt.Errorf("get endpoints error: %w", err)
+	}
 
-	publishMsg, err := json.Marshal(&chatv1.Room{
+	t := discovery.NewUDPTransponder(mgr.opts.DiscoveryAddr, &chatv1.Room{
 		APIMeta: metav1.NewAPIMeta(chatv1.KindRoom),
 		Meta:    metav1.ObjectMeta{UID: selfRoom.UID},
 		Owner: chatv1.User{
@@ -117,59 +104,78 @@ func (mgr *defaultManager) StartTransponder(ctx context.Context) error {
 		KeySignature: selfRoom.PublishedKeySignature,
 		Endpoints:    endpoints,
 	})
-	if err != nil {
-		return fmt.Errorf("marshal room info to json error: %w", err)
+
+	return t.Start(ctx)
+}
+
+// getEndpoints 获取可能能访问房间的端点
+func (mgr *defaultManager) getEndpoints(ctx context.Context) ([]string, error) {
+	logger := logr.FromContextOrDiscard(ctx)
+
+	if mgr.listenAddr == nil {
+		return nil, nil
 	}
-	publishMsg = append(publishMsg, '\n')
 
-	ch := make(chan struct{})
+	// 解析当前监听地址
+	listenAddr, err := net.ResolveTCPAddr("tcp", mgr.listenAddr.String())
+	if err != nil {
+		return nil, fmt.Errorf("resolve address %q error: %w", mgr.listenAddr.String(), err)
+	}
+	port := listenAddr.Port
+	allIfaces := false
+	if listenAddr.IP == nil || listenAddr.IP.IsUnspecified() {
+		allIfaces = true
+	}
 
-	go func() {
-		defer close(ch)
+	// 获取所有网卡地址
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("get interfaces error: %w", err)
+	}
 
-		for {
-			decoder := json.NewDecoder(readConn)
-			for decoder.More() {
-				var req chatv1.RoomRequest
-				if err := decoder.Decode(&req); err != nil {
-					logger.Error(err, "decode room request error")
-					break
+	var ips []net.IP
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			logger.Error(err, fmt.Sprintf("get interface %q addresses error", iface.Name))
+			continue
+		}
+
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				if allIfaces || v.Contains(listenAddr.IP) {
+					ips = append(ips, v.IP)
 				}
-				if !req.IsKind(chatv1.KindRoomRequest) {
-					continue
-				}
-				if req.KeySignature != "" && req.KeySignature != selfRoom.PublishedKeySignature {
-					continue
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case ch <- struct{}{}:
+			case *net.IPAddr:
+				if allIfaces || v.IP.Equal(listenAddr.IP) {
+					ips = append(ips, v.IP)
 				}
 			}
 		}
-	}()
+	}
 
-	go func() {
-		defer func() {
-			_ = readConn.Close()
-			_ = writeConn.Close()
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-ch:
-				if !ok {
-					return
-				}
-			}
-
-			if _, err := writeConn.Write(publishMsg); err != nil {
-				logger.Error(err, "publish error")
-			}
+	// 对 IP 排序
+	sort.Slice(ips, func(i, j int) bool {
+		// IPv4 优先
+		if len(ips[i]) != len(ips[j]) {
+			return len(ips[i]) < len(ips[j])
 		}
-	}()
-	return nil
+		// 私有地址优先
+		if ips[i].IsPrivate() != ips[j].IsPrivate() {
+			return ips[i].IsPrivate()
+		}
+		// 本地回环优先
+		if ips[i].IsLoopback() != ips[j].IsLoopback() {
+			return ips[i].IsLoopback()
+		}
+		return ips[i].String() < ips[j].String()
+	})
+
+	ret := make([]string, len(ips))
+	for i, ip := range ips {
+		ret[i] = fmt.Sprintf("http://%s", (&net.TCPAddr{IP: ip, Port: port}).String())
+	}
+
+	return ret, nil
 }

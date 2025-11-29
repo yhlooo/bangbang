@@ -18,8 +18,8 @@ import (
 // NewChatOptions 创建默认 ChatOptions
 func NewChatOptions() ChatOptions {
 	return ChatOptions{
-		HTTPAddr:        ":0",
-		TransponderAddr: "224.0.0.1:7134",
+		HTTPAddr:      ":0",
+		DiscoveryAddr: "224.0.0.1:7134",
 	}
 }
 
@@ -27,14 +27,14 @@ func NewChatOptions() ChatOptions {
 type ChatOptions struct {
 	// HTTP 服务监听地址
 	HTTPAddr string
-	// 应答器地址
-	TransponderAddr string
+	// 服务发现地址
+	DiscoveryAddr string
 }
 
 // AddPFlags 将选项绑定到命令行参数
 func (o *ChatOptions) AddPFlags(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.HTTPAddr, "listen", "l", o.HTTPAddr, "HTTP listen address")
-	fs.StringVar(&o.TransponderAddr, "transponder-addr", o.TransponderAddr, "Transponder address")
+	fs.StringVar(&o.DiscoveryAddr, "discovery-addr", o.DiscoveryAddr, "Transponder address")
 }
 
 var chatExampleTpl = template.Must(template.New("ChatCommand").
@@ -72,10 +72,10 @@ func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
 	selfUID := uuid.New().String()
 
 	mgr, err := managers.NewManager(managers.Options{
-		Key:             key,
-		OwnerUID:        selfUID,
-		HTTPAddr:        opts.HTTPAddr,
-		TransponderAddr: opts.TransponderAddr,
+		Key:           key,
+		OwnerUID:      selfUID,
+		HTTPAddr:      opts.HTTPAddr,
+		DiscoveryAddr: opts.DiscoveryAddr,
 	})
 	if err != nil {
 		return fmt.Errorf("init manager error: %w", err)

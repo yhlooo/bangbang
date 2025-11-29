@@ -36,7 +36,11 @@ func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
 	if err := r.doRequest(ctx, http.MethodGet, "/info", nil, info); err != nil {
 		return nil, err
 	}
-	return &RoomInfo{UID: info.Meta.UID}, nil
+	return &RoomInfo{
+		UID:                   info.Meta.UID,
+		OwnerUID:              info.Owner.Meta.UID,
+		PublishedKeySignature: info.KeySignature,
+	}, nil
 }
 
 // CreateMessage 创建消息
