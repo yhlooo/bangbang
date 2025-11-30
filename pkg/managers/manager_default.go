@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -48,8 +49,9 @@ func NewManager(opts Options) (Manager, error) {
 		return nil, err
 	}
 	return &defaultManager{
-		opts:     opts,
-		selfRoom: rooms.NewLocalRoom(opts.Key, opts.OwnerUID),
+		opts:       opts,
+		selfRoom:   rooms.NewLocalRoom(opts.Key, opts.OwnerUID),
+		discoverer: discovery.NewUDPDiscoverer(opts.DiscoveryAddr),
 	}, nil
 }
 
@@ -57,7 +59,8 @@ func NewManager(opts Options) (Manager, error) {
 type defaultManager struct {
 	opts Options
 
-	selfRoom rooms.Room
+	selfRoom   rooms.RoomWithUpstream
+	discoverer discovery.Discoverer
 
 	listenAddr net.Addr
 }
@@ -80,6 +83,58 @@ func (mgr *defaultManager) StartServer(ctx context.Context) (<-chan struct{}, er
 	}
 	mgr.listenAddr = addr
 	return done, nil
+}
+
+// StartSearchUpstream 开始搜索上游
+func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
+	logger := logr.FromContextOrDiscard(ctx)
+
+	selfRoom, err := mgr.SelfRoom(ctx).Info(ctx)
+	if err != nil {
+		return fmt.Errorf("get self room info error: %w", err)
+	}
+
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			if mgr.selfRoom.Upstream() != nil {
+				// 已经有上游了
+				continue
+			}
+
+			roomList, err := mgr.discoverer.Search(ctx, selfRoom.PublishedKeySignature, discovery.SearchOptions{})
+			if err != nil {
+				logger.Error(err, "search rooms error")
+				continue
+			}
+
+			for _, room := range roomList {
+				if room.Info.Meta.UID == selfRoom.UID {
+					// 跳过自己房间
+					continue
+				}
+				if room.AvailableEndpoint == "" {
+					// 跳过不可用的
+					continue
+				}
+
+				if err := mgr.selfRoom.SetUpstream(ctx, rooms.NewRemoteRoom(room.AvailableEndpoint)); err != nil {
+					logger.Error(err, "set upstream error")
+					continue
+				}
+				break
+			}
+		}
+	}()
+
+	return nil
 }
 
 // StartTransponder 开始运行应答机
@@ -174,7 +229,7 @@ func (mgr *defaultManager) getEndpoints(ctx context.Context) ([]string, error) {
 
 	ret := make([]string, len(ips))
 	for i, ip := range ips {
-		ret[i] = fmt.Sprintf("http://%s", (&net.TCPAddr{IP: ip, Port: port}).String())
+		ret[i] = "http://" + (&net.TCPAddr{IP: ip, Port: port}).String()
 	}
 
 	return ret, nil

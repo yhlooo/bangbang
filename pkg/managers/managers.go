@@ -14,4 +14,6 @@ type Manager interface {
 	StartServer(ctx context.Context) (<-chan struct{}, error)
 	// StartTransponder 开始运行应答机
 	StartTransponder(ctx context.Context) error
+	// StartSearchUpstream 开始搜索上游
+	StartSearchUpstream(ctx context.Context) error
 }

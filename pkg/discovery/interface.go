@@ -8,7 +8,9 @@ import (
 )
 
 // Discoverer 发现器
+
 type Discoverer interface {
+	Search(ctx context.Context, keySignature string, opts SearchOptions) ([]Room, error)
 }
 
 // SearchOptions 搜索选项

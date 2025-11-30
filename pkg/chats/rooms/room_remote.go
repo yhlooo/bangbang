@@ -24,8 +24,9 @@ func NewRemoteRoom(endpoint string) Room {
 type remoteRoom struct {
 	endpoint string
 
-	lock   sync.RWMutex
-	closed bool
+	lock      sync.RWMutex
+	closed    bool
+	stopFuncs []func()
 }
 
 var _ Room = (*remoteRoom)(nil)
@@ -45,12 +46,23 @@ func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
 
 // CreateMessage 创建消息
 func (r *remoteRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) error {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	if r.closed {
+		return fmt.Errorf("room already closed")
+	}
 	return r.doRequest(ctx, http.MethodPost, "/messages", msg, msg)
 }
 
 // Listen 获取监听消息的信道
 func (r *remoteRoom) Listen(ctx context.Context) (ch <-chan *chatv1.Message, stop func(), err error) {
 	logger := logr.FromContextOrDiscard(ctx)
+
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if r.closed {
+		return nil, nil, fmt.Errorf("room already closed")
+	}
 
 	// 构造请求
 	ctx, cancel := context.WithCancel(ctx)
@@ -84,7 +96,8 @@ func (r *remoteRoom) Listen(ctx context.Context) (ch <-chan *chatv1.Message, sto
 		}
 	}()
 
-	return msgCh, func() { cancel() }, nil
+	r.stopFuncs = append(r.stopFuncs, cancel)
+	return msgCh, cancel, nil
 }
 
 // Close 关闭
@@ -92,7 +105,9 @@ func (r *remoteRoom) Close(_ context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.closed = true
-	// TODO: 暂时不会做任何事，但是应该将 Listen 产生的 chan 都关闭
+	for _, stop := range r.stopFuncs {
+		stop()
+	}
 	return nil
 }
 

@@ -83,12 +83,17 @@ func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
 
 	// 运行服务
 	if _, err := mgr.StartServer(ctx); err != nil {
-		return fmt.Errorf("run server error: %w", err)
+		return fmt.Errorf("start server error: %w", err)
 	}
 
-	// 运行发布器
+	// 运行应答机
 	if err := mgr.StartTransponder(ctx); err != nil {
-		return fmt.Errorf("run transponder error: %w", err)
+		return fmt.Errorf("start transponder error: %w", err)
+	}
+
+	// 开始搜索上游
+	if err := mgr.StartSearchUpstream(ctx); err != nil {
+		return fmt.Errorf("start search upstream error: %w", err)
 	}
 
 	// 运行 UI

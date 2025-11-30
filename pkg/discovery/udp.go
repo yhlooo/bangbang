@@ -90,27 +90,36 @@ func (d *UDPDiscoverer) runListener(
 		}
 		_ = conn.Close()
 	}()
+	_ = conn.SetReadBuffer(1 << 20)
 
-mainLoop:
+	buffer := make([]byte, 8<<10)
 	for {
-		decoder := json.NewDecoder(conn)
-		for decoder.More() {
-			var room chatv1.Room
-			if err := decoder.Decode(&room); err != nil {
-				logger.Error(err, "decode room error")
-				continue mainLoop
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			if n == 0 {
+				break
 			}
-			if !room.IsKind(chatv1.KindRoom) {
-				continue
-			}
-			if keySignature != "" && room.KeySignature != keySignature {
-				continue
-			}
-
-			logger.V(1).Info(fmt.Sprintf("found room %q", room.Meta.UID))
-			roomMap[room.Meta.UID] = room
+			logger.Error(err, "read udp packet error")
 		}
-		break
+		if n == 0 {
+			continue
+		}
+
+		var room chatv1.Room
+		if err := json.Unmarshal(buffer[:n], &room); err != nil {
+			logger.Error(err, "decode room error: %s", string(buffer[:n]))
+			continue
+		}
+
+		if !room.IsKind(chatv1.KindRoom) {
+			continue
+		}
+		if keySignature != "" && room.KeySignature != keySignature {
+			continue
+		}
+
+		logger.V(1).Info(fmt.Sprintf("found room %q", room.Meta.UID))
+		roomMap[room.Meta.UID] = room
 	}
 
 	if len(roomMap) == 0 {
@@ -271,28 +280,37 @@ func (t *UDPTransponder) runListener(ctx context.Context, ch chan<- struct{}) {
 
 	defer close(ch)
 
-mainLoop:
+	buffer := make([]byte, 8<<10)
 	for {
-		decoder := json.NewDecoder(t.readConn)
-		for decoder.More() {
-			var req chatv1.RoomRequest
-			if err := decoder.Decode(&req); err != nil {
-				logger.Error(err, "decode room request error")
-				continue mainLoop
-			}
-			if !req.IsKind(chatv1.KindRoomRequest) {
-				continue
-			}
-			if req.KeySignature != "" && req.KeySignature != t.room.KeySignature {
-				continue
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case ch <- struct{}{}:
-			}
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
-		return
+
+		n, _, err := t.readConn.ReadFromUDP(buffer)
+		if err != nil {
+			logger.Error(err, "read udp packet error")
+		}
+		if n == 0 {
+			continue
+		}
+
+		var req chatv1.RoomRequest
+		if err := json.Unmarshal(buffer[:n], &req); err != nil {
+			logger.Error(err, "decode room request error: %s", string(buffer[:n]))
+		}
+		if !req.IsKind(chatv1.KindRoomRequest) {
+			continue
+		}
+		if req.KeySignature != "" && req.KeySignature != t.room.KeySignature {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case ch <- struct{}{}:
+		}
 	}
 }
 

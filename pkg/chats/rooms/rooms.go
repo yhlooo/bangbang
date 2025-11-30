@@ -20,6 +20,15 @@ type Room interface {
 	Close(ctx context.Context) error
 }
 
+// RoomWithUpstream 有上游的房间
+type RoomWithUpstream interface {
+	Room
+	// Upstream 返回当前房间的上游
+	Upstream() Room
+	// SetUpstream 设置上游房间
+	SetUpstream(ctx context.Context, room Room) error
+}
+
 // RoomInfo 房间信息
 type RoomInfo struct {
 	UID                   string
