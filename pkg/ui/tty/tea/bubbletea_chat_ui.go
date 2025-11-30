@@ -17,10 +17,10 @@ import (
 )
 
 // NewChatUI 创建聊天 UI
-func NewChatUI(room rooms.Room, selfUID metav1.UID) *ChatUI {
+func NewChatUI(room rooms.Room, self *metav1.ObjectMeta) *ChatUI {
 	return &ChatUI{
-		selfUID: selfUID,
-		room:    room,
+		self: self,
+		room: room,
 	}
 }
 
@@ -28,7 +28,7 @@ func NewChatUI(room rooms.Room, selfUID metav1.UID) *ChatUI {
 type ChatUI struct {
 	ctx context.Context
 
-	selfUID  metav1.UID
+	self     *metav1.ObjectMeta
 	room     rooms.Room
 	messages []*chatv1.Message
 
@@ -100,9 +100,7 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			err := ui.room.CreateMessage(ctx, &chatv1.Message{
 				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
-				From: metav1.ObjectMeta{
-					UID: ui.selfUID,
-				},
+				From:    *ui.self,
 				Content: chatv1.MessageContent{
 					Text: &chatv1.TextMessageContent{Content: ui.input.Value()},
 				},
@@ -130,7 +128,7 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (ui *ChatUI) View() string {
 	return fmt.Sprintf(`%s
 ┃ %s:
-%s`, ui.vp.View(), ui.selfUID.Short(), ui.input.View())
+%s`, ui.vp.View(), getUserShowingName(ui.self), ui.input.View())
 }
 
 // initInputBox 初始化输入框
@@ -152,8 +150,22 @@ func (ui *ChatUI) messagesContent() string {
 	retLines := make([]string, 0, len(ui.messages)*2)
 	for _, msg := range ui.messages {
 		if msg.Content.Text != nil {
-			retLines = append(retLines, msg.From.UID.Short()+":", msg.Content.Text.Content, "")
+			retLines = append(retLines,
+				getUserShowingName(&msg.From)+":",
+				lipgloss.NewStyle().PaddingLeft(1).Render(msg.Content.Text.Content),
+				"",
+			)
 		}
 	}
 	return strings.Join(retLines, "\n")
+}
+
+// getUserShowingName 获取用户展示名
+func getUserShowingName(user *metav1.ObjectMeta) string {
+	uid := user.UID.Short()
+	if user.Name == "" {
+		return lipgloss.NewStyle().Bold(true).Render(uid)
+	}
+	return lipgloss.NewStyle().Bold(true).Render(user.Name) + " " +
+		lipgloss.NewStyle().Faint(true).Render("("+uid+")")
 }

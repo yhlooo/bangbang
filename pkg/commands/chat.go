@@ -25,6 +25,8 @@ func NewChatOptions() ChatOptions {
 
 // ChatOptions 选项
 type ChatOptions struct {
+	// 用户名
+	Name string
 	// HTTP 服务监听地址
 	HTTPAddr string
 	// 服务发现地址
@@ -33,6 +35,7 @@ type ChatOptions struct {
 
 // AddPFlags 将选项绑定到命令行参数
 func (o *ChatOptions) AddPFlags(fs *pflag.FlagSet) {
+	fs.StringVarP(&o.Name, "name", "n", o.Name, "Your name")
 	fs.StringVarP(&o.HTTPAddr, "listen", "l", o.HTTPAddr, "HTTP listen address")
 	fs.StringVar(&o.DiscoveryAddr, "discovery-addr", o.DiscoveryAddr, "Transponder address")
 }
@@ -97,6 +100,9 @@ func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
 	}
 
 	// 运行 UI
-	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), selfUID)
+	ui := uitea.NewChatUI(mgr.SelfRoom(ctx), &metav1.ObjectMeta{
+		UID:  selfUID,
+		Name: opts.Name,
+	})
 	return ui.Run(ctx)
 }
