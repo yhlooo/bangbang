@@ -33,11 +33,10 @@ type localRoom struct {
 
 	lock sync.RWMutex
 
-	closed               bool
-	channels             map[chan *chatv1.Message]*metav1.ObjectMeta
-	upstream             Room
-	upstreamDeduplicator deduplicators.Deduplicator
-	deduplicator         deduplicators.Deduplicator
+	closed       bool
+	channels     map[chan *chatv1.Message]*metav1.ObjectMeta
+	upstream     Room
+	deduplicator deduplicators.Deduplicator
 }
 
 var _ RoomWithUpstream = (*localRoom)(nil)
@@ -56,6 +55,9 @@ func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
 func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) error {
 	logger := logr.FromContextOrDiscard(ctx)
 
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
 	if msg.Meta.UID.IsNil() {
 		msg.Meta.UID = metav1.NewUID()
 	}
@@ -66,10 +68,7 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		return nil
 	}
 
-	r.lock.RLock()
-
 	if r.closed {
-		r.lock.RUnlock()
 		return fmt.Errorf("room already closed")
 	}
 
@@ -80,16 +79,6 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		}
 	}
 
-	if r.upstream == nil || r.upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
-		r.lock.RUnlock()
-		return nil
-	}
-	r.lock.RUnlock()
-
-	// 转发给上游
-	if err := r.upstream.CreateMessage(ctx, msg); err != nil {
-		return fmt.Errorf("forward to upstream error: %w", err)
-	}
 	return nil
 }
 
@@ -189,19 +178,22 @@ func (r *localRoom) SetUpstream(ctx context.Context, room Room) error {
 
 	logger.V(1).Info(fmt.Sprintf("set upstream: %s", info.UID))
 	r.upstream = room
-	r.upstreamDeduplicator = deduplicators.NewBloomFilter(500, 0.001)
-	go r.listenUpstream(ctx, r.upstream, r.upstreamDeduplicator)
+	upstreamDeduplicator := deduplicators.NewBloomFilter(500, 0.001)
+	done := make(chan struct{})
+	go r.listenUpstream(ctx, r.upstream, done, upstreamDeduplicator)
+	go r.forwardToUpstream(ctx, r.upstream, done, upstreamDeduplicator)
 
 	return nil
 }
 
-// listenUpstream 监听上游房间
-func (r *localRoom) listenUpstream(ctx context.Context, upstream Room, upstreamDeduplicator deduplicators.Deduplicator) {
+// forwardToUpstream 转发消息给上游
+func (r *localRoom) forwardToUpstream(
+	ctx context.Context,
+	upstream Room,
+	done <-chan struct{},
+	upstreamDeduplicator deduplicators.Deduplicator,
+) {
 	logger := logr.FromContextOrDiscard(ctx)
-
-	if upstream == nil {
-		return
-	}
 
 	defer func() {
 		r.lock.Lock()
@@ -209,6 +201,53 @@ func (r *localRoom) listenUpstream(ctx context.Context, upstream Room, upstreamD
 			r.upstream = nil
 		}
 		r.lock.Unlock()
+		_ = upstream.Close(ctx)
+	}()
+
+	ch, stop, err := r.Listen(ctx, nil)
+	if err != nil {
+		logger.Error(err, "listen error")
+		return
+	}
+	defer stop()
+
+	for {
+		var msg *chatv1.Message
+		var ok bool
+		select {
+		case <-done:
+			return
+		case msg, ok = <-ch:
+			if !ok {
+				return
+			}
+		}
+
+		if upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
+			continue
+		}
+		if err := r.upstream.CreateMessage(ctx, msg); err != nil {
+			logger.Error(err, "forward to upstream error")
+		}
+	}
+}
+
+// listenUpstream 监听上游房间
+func (r *localRoom) listenUpstream(
+	ctx context.Context,
+	upstream Room,
+	done chan<- struct{},
+	upstreamDeduplicator deduplicators.Deduplicator,
+) {
+	logger := logr.FromContextOrDiscard(ctx)
+
+	defer func() {
+		r.lock.Lock()
+		if r.upstream == upstream {
+			r.upstream = nil
+		}
+		r.lock.Unlock()
+		close(done)
 		_ = upstream.Close(ctx)
 	}()
 

@@ -65,11 +65,11 @@ func (r *remoteRoom) Listen(
 	logger := logr.FromContextOrDiscard(ctx)
 
 	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	if r.closed {
-		r.lock.Unlock()
 		return nil, nil, fmt.Errorf("room already closed")
 	}
-	r.lock.Unlock()
 
 	uri := "/messages"
 	if user != nil {

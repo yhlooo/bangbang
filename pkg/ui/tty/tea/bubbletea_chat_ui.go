@@ -199,10 +199,10 @@ func (ui *ChatUI) messagesContent() string {
 			)
 		}
 		if msg.Content.Join != nil && msg.Content.Join.User.UID != ui.self.UID {
-			retLines = append(retLines, fmt.Sprintf("%s joined", getUserShowingName(&msg.Content.Join.User)))
+			retLines = append(retLines, fmt.Sprintf("%s joined", getUserShowingName(&msg.Content.Join.User)), "")
 		}
 		if msg.Content.Leave != nil && msg.Content.Leave.User.UID != ui.self.UID {
-			retLines = append(retLines, fmt.Sprintf("%s left", getUserShowingName(&msg.Content.Leave.User)))
+			retLines = append(retLines, fmt.Sprintf("%s left", getUserShowingName(&msg.Content.Leave.User)), "")
 		}
 	}
 	return strings.Join(retLines, "\n")
