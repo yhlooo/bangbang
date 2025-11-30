@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/yhlooo/bangbang/pkg/log"
+	"github.com/yhlooo/bangbang/pkg/version"
 )
 
 // NewGlobalOptions 创建一个默认 GlobalOptions
@@ -53,6 +54,7 @@ func NewCommand(name string) *cobra.Command {
 		Short:         "Face-to-face group chat, file transfer.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -102,6 +104,7 @@ func NewCommand(name string) *cobra.Command {
 	cmd.AddCommand(
 		newChatCommand(name),
 		newScanCommand(),
+		newVersionCommand(),
 	)
 
 	return cmd
