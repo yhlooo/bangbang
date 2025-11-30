@@ -149,7 +149,9 @@ func (ui *ChatUI) initInputBox() {
 func (ui *ChatUI) messagesContent() string {
 	retLines := make([]string, 0, len(ui.messages)*2)
 	for _, msg := range ui.messages {
-		retLines = append(retLines, msg.From.UID, msg.Content.Text.Content, "")
+		if msg.Content.Text != nil {
+			retLines = append(retLines, msg.From.UID, msg.Content.Text.Content, "")
+		}
 	}
 	return strings.Join(retLines, "\n")
 }

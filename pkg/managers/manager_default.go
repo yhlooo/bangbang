@@ -109,7 +109,9 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 				continue
 			}
 
-			roomList, err := mgr.discoverer.Search(ctx, selfRoom.PublishedKeySignature, discovery.SearchOptions{})
+			roomList, err := mgr.discoverer.Search(ctx, selfRoom.PublishedKeySignature, discovery.SearchOptions{
+				CheckAvailability: true,
+			})
 			if err != nil {
 				logger.Error(err, "search rooms error")
 				continue
@@ -122,6 +124,7 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 				}
 				if room.AvailableEndpoint == "" {
 					// 跳过不可用的
+					logger.V(1).Info(fmt.Sprintf("skip unavailable room: %s", room.Info.Meta.UID))
 					continue
 				}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/yhlooo/bangbang/pkg/chats/rooms"
+	"github.com/yhlooo/bangbang/pkg/log"
 	"github.com/yhlooo/bangbang/pkg/servers/chat"
 	"github.com/yhlooo/bangbang/pkg/servers/common"
 )
@@ -38,7 +40,7 @@ func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, er
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := newGin(ctx, opts.Room)
+	r := newGin(ctx, opts.Room, log.WriterFromContext(ctx))
 	srv := &http.Server{
 		Handler: r,
 	}
@@ -66,12 +68,15 @@ func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, er
 	return l.Addr(), done, nil
 }
 
-func newGin(reqCTX context.Context, room rooms.Room) *gin.Engine {
+func newGin(reqCTX context.Context, room rooms.Room, logWriter io.Writer) *gin.Engine {
+	gin.DefaultWriter = logWriter
+	gin.DefaultErrorWriter = logWriter
 	r := gin.New()
-	r.Use(gin.Recovery())
 	r.ContextWithFallback = true
 
 	r.Use(
+		gin.Recovery(),
+		gin.LoggerWithWriter(logWriter),
 		common.InjectRequestContext(reqCTX),
 		common.InjectRequestID,
 	)

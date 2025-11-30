@@ -87,6 +87,11 @@ func (r *remoteRoom) Listen(ctx context.Context) (ch <-chan *chatv1.Message, sto
 				logger.Error(err, "decode message error")
 				return
 			}
+			if !msg.IsKind(chatv1.KindMessage) {
+				// TODO: metav1.Status 应该反序列化出来
+				logger.Info("invalid message")
+				continue
+			}
 
 			select {
 			case <-ctx.Done():
