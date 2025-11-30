@@ -6,17 +6,17 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
+	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/deduplicators"
 )
 
 // NewLocalRoom 创建本地房间实例
-func NewLocalRoom(key keys.HashKey, ownerUID string) RoomWithUpstream {
+func NewLocalRoom(key keys.HashKey, ownerUID metav1.UID) RoomWithUpstream {
 	return &localRoom{
-		uid:          uuid.New().String(),
+		uid:          metav1.NewUID(),
 		ownerUID:     ownerUID,
 		key:          key.Copy(),
 		deduplicator: deduplicators.NewBloomFilter(500, 0.001),
@@ -25,8 +25,8 @@ func NewLocalRoom(key keys.HashKey, ownerUID string) RoomWithUpstream {
 
 // localRoom 是 Room 的本地实现
 type localRoom struct {
-	uid      string
-	ownerUID string
+	uid      metav1.UID
+	ownerUID metav1.UID
 	key      keys.HashKey
 
 	lock sync.RWMutex
@@ -60,12 +60,12 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		return fmt.Errorf("room already closed")
 	}
 
-	if msg.Meta.UID == "" {
-		msg.Meta.UID = uuid.New().String()
+	if msg.Meta.UID.IsNil() {
+		msg.Meta.UID = metav1.NewUID()
 	}
 
 	// 去重
-	if r.deduplicator.Duplicate([]byte(msg.Meta.UID)) {
+	if r.deduplicator.Duplicate(msg.Meta.UID[:]) {
 		logger.V(1).Info(fmt.Sprintf("duplicated message: %s", msg.Meta.UID))
 		return nil
 	}
@@ -78,7 +78,7 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 	}
 
 	// 转发给上游
-	if r.upstream != nil && !r.upstreamDeduplicator.Duplicate([]byte(msg.Meta.UID)) {
+	if r.upstream != nil && !r.upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
 		if err := r.upstream.CreateMessage(ctx, msg); err != nil {
 			return fmt.Errorf("forward to upstream error: %w", err)
 		}
@@ -191,7 +191,7 @@ func (r *localRoom) listenUpstream(ctx context.Context) {
 	defer stop()
 
 	for msg := range ch {
-		upstreamDeduplicator.Duplicate([]byte(msg.Meta.UID))
+		upstreamDeduplicator.Duplicate(msg.Meta.UID[:])
 		if err := r.CreateMessage(ctx, msg); err != nil {
 			logger.Error(err, "create message error")
 		}

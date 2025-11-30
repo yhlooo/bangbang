@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/managers"
 	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
@@ -69,7 +69,7 @@ func newChatCommand(parentName string) *cobra.Command {
 
 // run 运行
 func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
-	selfUID := uuid.New().String()
+	selfUID := metav1.NewUID()
 
 	mgr, err := managers.NewManager(managers.Options{
 		Key:           key,

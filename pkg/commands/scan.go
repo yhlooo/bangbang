@@ -95,7 +95,7 @@ func newScanCommand() *cobra.Command {
 func showScanResult(result []discovery.Room) {
 	for _, room := range result {
 		fmt.Printf("      UID : %s\n", room.Info.Meta.UID)
-		if ownerUID := room.Info.Owner.Meta.UID; ownerUID != "" {
+		if ownerUID := room.Info.Owner.Meta.UID; !ownerUID.IsNil() {
 			fmt.Printf("    Owner : %s\n", ownerUID)
 		}
 		if room.Info.KeySignature != "" {

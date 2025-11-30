@@ -81,7 +81,7 @@ func (d *UDPDiscoverer) runListener(
 ) ([]Room, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 
-	roomMap := map[string]chatv1.Room{}
+	roomMap := map[metav1.UID]chatv1.Room{}
 
 	go func() {
 		select {
@@ -133,7 +133,7 @@ func (d *UDPDiscoverer) runListener(
 		})
 	}
 	sort.Slice(ret, func(i, j int) bool {
-		return ret[i].Info.Meta.UID < ret[j].Info.Meta.UID
+		return ret[i].Info.Meta.UID.String() < ret[j].Info.Meta.UID.String()
 	})
 
 	return ret, nil

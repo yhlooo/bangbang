@@ -17,7 +17,7 @@ import (
 )
 
 // NewChatUI 创建聊天 UI
-func NewChatUI(room rooms.Room, selfUID string) *ChatUI {
+func NewChatUI(room rooms.Room, selfUID metav1.UID) *ChatUI {
 	return &ChatUI{
 		selfUID: selfUID,
 		room:    room,
@@ -28,7 +28,7 @@ func NewChatUI(room rooms.Room, selfUID string) *ChatUI {
 type ChatUI struct {
 	ctx context.Context
 
-	selfUID  string
+	selfUID  metav1.UID
 	room     rooms.Room
 	messages []*chatv1.Message
 
@@ -128,7 +128,9 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View 生成显示内容
 func (ui *ChatUI) View() string {
-	return ui.vp.View() + "\n\n" + ui.input.View()
+	return fmt.Sprintf(`%s
+┃ %s:
+%s`, ui.vp.View(), ui.selfUID.Short(), ui.input.View())
 }
 
 // initInputBox 初始化输入框
@@ -150,7 +152,7 @@ func (ui *ChatUI) messagesContent() string {
 	retLines := make([]string, 0, len(ui.messages)*2)
 	for _, msg := range ui.messages {
 		if msg.Content.Text != nil {
-			retLines = append(retLines, msg.From.UID, msg.Content.Text.Content, "")
+			retLines = append(retLines, msg.From.UID.Short()+":", msg.Content.Text.Content, "")
 		}
 	}
 	return strings.Join(retLines, "\n")

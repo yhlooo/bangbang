@@ -22,7 +22,7 @@ import (
 type Options struct {
 	Key keys.HashKey
 	// 房间所有者 UID
-	OwnerUID string
+	OwnerUID metav1.UID
 	// HTTP 监听地址
 	HTTPAddr string
 	// 服务发现地址

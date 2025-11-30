@@ -4,6 +4,7 @@ import (
 	"context"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
+	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 )
 
 // Room 聊天房间
@@ -31,7 +32,7 @@ type RoomWithUpstream interface {
 
 // RoomInfo 房间信息
 type RoomInfo struct {
-	UID                   string
-	OwnerUID              string
+	UID                   metav1.UID
+	OwnerUID              metav1.UID
 	PublishedKeySignature string
 }
