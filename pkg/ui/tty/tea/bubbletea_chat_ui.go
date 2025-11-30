@@ -32,8 +32,10 @@ type ChatUI struct {
 	room     rooms.Room
 	messages []*chatv1.Message
 
-	vp    viewport.Model
-	input textarea.Model
+	width, height int
+	vp            viewport.Model
+	input         textarea.Model
+	multilineMode bool
 }
 
 var _ tea.Model = (*ChatUI)(nil)
@@ -82,11 +84,8 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch typed := msg.(type) {
 	case tea.WindowSizeMsg:
-		ui.vp.Width = typed.Width
-		ui.input.SetWidth(typed.Width)
-		ui.vp.Height = typed.Height - ui.input.Height() - 3
-
-		ui.vp.SetContent(lipgloss.NewStyle().Width(ui.vp.Width).Render(ui.messagesContent()))
+		ui.width, ui.height = typed.Width, typed.Height
+		ui.fixSize()
 		ui.vp.GotoBottom()
 
 	case tea.KeyMsg:
@@ -98,19 +97,29 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logger.Error(err, "close room error")
 			}
 			return ui, tea.Quit
+		case tea.KeyTab:
+			ui.multilineMode = true
+			ui.fixSize()
+		case tea.KeyEsc:
+			ui.multilineMode = false
+			ui.fixSize()
+			fallthrough
 		case tea.KeyEnter:
-			err := ui.room.CreateMessage(ctx, &chatv1.Message{
-				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
-				From:    *ui.self,
-				Content: chatv1.MessageContent{
-					Text: &chatv1.TextMessageContent{Content: ui.input.Value()},
-				},
-			})
-			if err != nil {
-				logger.Error(err, "send message to room error")
+			content := strings.TrimRight(ui.input.Value(), "\n")
+			if !ui.multilineMode && content != "" {
+				err := ui.room.CreateMessage(ctx, &chatv1.Message{
+					APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
+					From:    *ui.self,
+					Content: chatv1.MessageContent{
+						Text: &chatv1.TextMessageContent{Content: content},
+					},
+				})
+				if err != nil {
+					logger.Error(err, "send message to room error")
+				}
+				ui.input.Reset()
+				ui.vp.GotoBottom()
 			}
-			ui.input.Reset()
-			ui.vp.GotoBottom()
 		default:
 		}
 
@@ -121,6 +130,8 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case error:
 		logger.Error(typed, "error")
 		return ui, nil
+	default:
+		logger.V(1).Info(fmt.Sprintf("unknown message: %#v", msg))
 	}
 
 	return ui, tea.Batch(inputCmd, vpCmd)
@@ -128,9 +139,24 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View 生成显示内容
 func (ui *ChatUI) View() string {
+	faint := lipgloss.NewStyle().Faint(true)
+	inputTips := faint.Render("Press ") +
+		"ENTER" +
+		faint.Render(" to send message, press ") +
+		"TAB" +
+		faint.Render(" to enable multiline input")
+	if ui.multilineMode {
+		inputTips = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Render("MULTILINE MODE") +
+			faint.Render(" (Press ") +
+			"ESC" +
+			faint.Render(" to send message and exit multiline input mode)")
+	}
 	return fmt.Sprintf(`%s
+
 ┃ %s:
-%s`, ui.vp.View(), getUserShowingName(ui.self), ui.input.View())
+%s
+┃
+┃ %s`, ui.vp.View(), getUserShowingName(ui.self), ui.input.View(), inputTips)
 }
 
 // initInputBox 初始化输入框
@@ -141,10 +167,23 @@ func (ui *ChatUI) initInputBox() {
 	ui.input.Prompt = "┃ "
 	ui.input.CharLimit = 1024
 	ui.input.SetWidth(30)
-	ui.input.SetHeight(3)
+	ui.input.SetHeight(1)
 	ui.input.FocusedStyle.CursorLine = lipgloss.NewStyle() // Remove cursor line styling
 	ui.input.ShowLineNumbers = false
-	ui.input.KeyMap.InsertNewline.SetEnabled(false)
+}
+
+// fixSize 适配大小
+func (ui *ChatUI) fixSize() {
+	ui.input.SetWidth(ui.width)
+	if ui.multilineMode {
+		ui.input.SetHeight(5)
+	} else {
+		ui.input.SetHeight(1)
+	}
+	ui.vp.Width = ui.width
+	ui.vp.Height = ui.height - ui.input.Height() - 6
+
+	ui.vp.SetContent(lipgloss.NewStyle().Width(ui.vp.Width).Render(ui.messagesContent()))
 }
 
 // messagesContent 获取消息文本形式展示的内容
