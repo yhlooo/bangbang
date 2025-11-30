@@ -80,17 +80,18 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	ui.input, inputCmd = ui.input.Update(msg)
 	ui.vp, vpCmd = ui.vp.Update(msg)
 
-	switch msg := msg.(type) {
+	switch typed := msg.(type) {
 	case tea.WindowSizeMsg:
-		ui.vp.Width = msg.Width
-		ui.input.SetWidth(msg.Width)
-		ui.vp.Height = msg.Height - ui.input.Height() - 3
+		ui.vp.Width = typed.Width
+		ui.input.SetWidth(typed.Width)
+		ui.vp.Height = typed.Height - ui.input.Height() - 3
 
 		ui.vp.SetContent(lipgloss.NewStyle().Width(ui.vp.Width).Render(ui.messagesContent()))
 		ui.vp.GotoBottom()
 
 	case tea.KeyMsg:
-		switch msg.Type {
+		logger.V(1).Info(fmt.Sprintf("key message: %s", typed.String()))
+		switch typed.Type {
 		case tea.KeyCtrlC, tea.KeyCtrlD:
 			fmt.Println(ui.input.Value())
 			if err := ui.room.Close(ctx); err != nil {
@@ -110,14 +111,15 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			ui.input.Reset()
 			ui.vp.GotoBottom()
+		default:
 		}
 
 	case *chatv1.Message:
-		ui.messages = append(ui.messages, msg)
+		ui.messages = append(ui.messages, typed)
 		ui.vp.SetContent(lipgloss.NewStyle().Width(ui.vp.Width).Render(ui.messagesContent()))
 
 	case error:
-		logger.Error(msg, "error")
+		logger.Error(typed, "error")
 		return ui, nil
 	}
 
