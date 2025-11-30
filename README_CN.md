@@ -25,7 +25,7 @@ BangBang 是一个去中心的面对面群聊、文件传输工具，通过输�
 
 ### Docker
 
-使用镜像 [`ghcr.io/yhlooo/bangbang`](https://github.com/yhlooo/bangbang/pkgs/container/bangbang) 直接 docker run：
+使用镜像 [`ghcr.io/yhlooo/bang`](https://github.com/yhlooo/bangbang/pkgs/container/bang) 直接 docker run：
 
 ```bash
 docker run -it --net=host --rm ghcr.io/yhlooo/bang:latest --help
