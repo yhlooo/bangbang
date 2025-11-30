@@ -23,6 +23,8 @@ type Options struct {
 	Key keys.HashKey
 	// 房间所有者 UID
 	OwnerUID metav1.UID
+	// 房间所有者名
+	OwnerName string
 	// HTTP 监听地址
 	HTTPAddr string
 	// 服务发现地址
@@ -50,7 +52,7 @@ func NewManager(opts Options) (Manager, error) {
 	}
 	return &defaultManager{
 		opts:       opts,
-		selfRoom:   rooms.NewLocalRoom(opts.Key, opts.OwnerUID),
+		selfRoom:   rooms.NewLocalRoom(opts.Key, opts.OwnerUID, opts.OwnerName),
 		discoverer: discovery.NewUDPDiscoverer(opts.DiscoveryAddr),
 	}, nil
 }

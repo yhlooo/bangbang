@@ -3,6 +3,7 @@ package v1
 import (
 	"crypto/sha1"
 	"encoding/base32"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -54,6 +55,29 @@ func NewUID() UID {
 
 // UID 唯一 ID
 type UID uuid.UUID
+
+// MarshalJSON 序列化为 JSON
+//
+//goland:noinspection GoMixedReceiverTypes
+func (uid *UID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(uid.String())
+}
+
+// UnmarshalJSON 从 JSON 反序列化
+//
+//goland:noinspection GoMixedReceiverTypes
+func (uid *UID) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	ret, err := uuid.Parse(s)
+	if err != nil {
+		return err
+	}
+	*uid = UID(ret)
+	return nil
+}
 
 // IsNil 判断是否零值
 func (uid UID) IsNil() bool {

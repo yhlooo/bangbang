@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -40,6 +41,7 @@ func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
 	return &RoomInfo{
 		UID:                   info.Meta.UID,
 		OwnerUID:              info.Owner.Meta.UID,
+		OwnerName:             info.Owner.Meta.Name,
 		PublishedKeySignature: info.KeySignature,
 	}, nil
 }
@@ -47,26 +49,39 @@ func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
 // CreateMessage 创建消息
 func (r *remoteRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) error {
 	r.lock.RLock()
-	defer r.lock.RUnlock()
 	if r.closed {
+		r.lock.RUnlock()
 		return fmt.Errorf("room already closed")
 	}
+	r.lock.RUnlock()
 	return r.doRequest(ctx, http.MethodPost, "/messages", msg, msg)
 }
 
 // Listen 获取监听消息的信道
-func (r *remoteRoom) Listen(ctx context.Context) (ch <-chan *chatv1.Message, stop func(), err error) {
+func (r *remoteRoom) Listen(
+	ctx context.Context,
+	user *metav1.ObjectMeta,
+) (ch <-chan *chatv1.Message, stop func(), err error) {
 	logger := logr.FromContextOrDiscard(ctx)
 
 	r.lock.Lock()
-	defer r.lock.Unlock()
 	if r.closed {
+		r.lock.Unlock()
 		return nil, nil, fmt.Errorf("room already closed")
+	}
+	r.lock.Unlock()
+
+	uri := "/messages"
+	if user != nil {
+		uri += "?" + url.Values{
+			"userUID":  {user.UID.String()},
+			"userName": {user.Name},
+		}.Encode()
 	}
 
 	// 构造请求
 	ctx, cancel := context.WithCancel(ctx)
-	resp, err := r.doGetStreamRequest(ctx, "/messages")
+	resp, err := r.doGetStreamRequest(ctx, uri)
 	if err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("make request error: %w", err)

@@ -15,7 +15,7 @@ type Room interface {
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, msg *chatv1.Message) error
 	// Listen 获取监听消息的信道
-	Listen(ctx context.Context) (ch <-chan *chatv1.Message, stop func(), err error)
+	Listen(ctx context.Context, user *metav1.ObjectMeta) (ch <-chan *chatv1.Message, stop func(), err error)
 
 	// Close 关闭
 	Close(ctx context.Context) error
@@ -34,5 +34,6 @@ type RoomWithUpstream interface {
 type RoomInfo struct {
 	UID                   metav1.UID
 	OwnerUID              metav1.UID
+	OwnerName             string
 	PublishedKeySignature string
 }

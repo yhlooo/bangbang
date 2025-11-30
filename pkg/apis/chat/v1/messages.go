@@ -21,9 +21,18 @@ type Message struct {
 type MessageContent struct {
 	// 文本消息内容
 	Text *TextMessageContent `json:"text,omitempty"`
+	// 成员加入
+	Join *MembersChangeMessageContent `json:"join,omitempty"`
+	// 成员离开
+	Leave *MembersChangeMessageContent `json:"leave,omitempty"`
 }
 
 // TextMessageContent 文本消息内容
 type TextMessageContent struct {
 	Content string `json:"content,omitempty"`
+}
+
+// MembersChangeMessageContent 成员变化消息
+type MembersChangeMessageContent struct {
+	User metav1.ObjectMeta `json:"user,omitempty"`
 }

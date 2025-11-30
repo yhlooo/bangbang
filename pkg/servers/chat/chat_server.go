@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
@@ -22,9 +23,10 @@ type Server interface {
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, req *CreateMessageRequest) (*chatv1.Message, error)
 	// ListenMessages 监听消息
-	ListenMessages(ctx context.Context, _ *EmptyRequest) (*metav1.Status, error)
+	ListenMessages(ctx context.Context, req *ListenMessagesRequest) (*metav1.Status, error)
 }
 
+// EmptyRequest 空请求
 type EmptyRequest struct{}
 
 // CreateMessageRequest 创建消息请求
@@ -35,6 +37,12 @@ type CreateMessageRequest struct {
 // Body 返回 body 部分字段
 func (req *CreateMessageRequest) Body() interface{} {
 	return &req.Message
+}
+
+// ListenMessagesRequest 监听消息请求
+type ListenMessagesRequest struct {
+	UserUID  string `form:"userUID"`
+	UserName string `form:"userName"`
 }
 
 // NewServer 创建 Server
@@ -63,7 +71,10 @@ func (s *chatServer) GetInfo(ctx context.Context, _ *EmptyRequest) (*chatv1.Room
 		Meta:    metav1.ObjectMeta{UID: info.UID},
 		Owner: chatv1.User{
 			APIMeta: metav1.NewAPIMeta(chatv1.KindUser),
-			Meta:    metav1.ObjectMeta{UID: info.OwnerUID},
+			Meta: metav1.ObjectMeta{
+				UID:  info.OwnerUID,
+				Name: info.OwnerName,
+			},
 		},
 		KeySignature: info.PublishedKeySignature,
 	}, nil
@@ -82,11 +93,23 @@ func (s *chatServer) CreateMessage(ctx context.Context, req *CreateMessageReques
 }
 
 // ListenMessages 监听消息
-func (s *chatServer) ListenMessages(ctx context.Context, _ *EmptyRequest) (*metav1.Status, error) {
+func (s *chatServer) ListenMessages(ctx context.Context, req *ListenMessagesRequest) (*metav1.Status, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info("listen messages in room")
 
-	ch, stop, err := s.room.Listen(ctx)
+	var user *metav1.ObjectMeta
+	if req.UserUID != "" {
+		uid, err := uuid.Parse(req.UserUID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid user uid %q: %w", req.UserUID, err)
+		}
+		user = &metav1.ObjectMeta{
+			UID:  metav1.UID(uid),
+			Name: req.UserName,
+		}
+	}
+
+	ch, stop, err := s.room.Listen(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("listen message in room error: %w", err)
 	}
@@ -104,7 +127,20 @@ func (s *chatServer) ListenMessages(ctx context.Context, _ *EmptyRequest) (*meta
 	ginCTX.Writer.Flush()
 
 	// 流式传输消息
-	for msg := range ch {
+mainLoop:
+	for {
+		var msg *chatv1.Message
+		select {
+		case <-ctx.Done():
+			break mainLoop
+		case <-ginCTX.Writer.CloseNotify():
+			break mainLoop
+		case msg, ok = <-ch:
+			if !ok {
+				break mainLoop
+			}
+		}
+
 		logger.Info(fmt.Sprintf("send message %q to client", msg.Meta.UID))
 		raw, err := json.Marshal(msg)
 		if err != nil {

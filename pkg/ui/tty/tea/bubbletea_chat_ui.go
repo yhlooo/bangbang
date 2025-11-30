@@ -51,7 +51,7 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 	ui.vp = viewport.New(30, 5)
 	ui.ctx = ctx
 
-	msgCh, stop, err := ui.room.Listen(ctx)
+	msgCh, stop, err := ui.room.Listen(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("listen messages in room error: %w", err)
 	}
@@ -126,6 +126,7 @@ func (ui *ChatUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *chatv1.Message:
 		ui.messages = append(ui.messages, typed)
 		ui.vp.SetContent(lipgloss.NewStyle().Width(ui.vp.Width).Render(ui.messagesContent()))
+		ui.vp.GotoBottom()
 
 	case error:
 		logger.Error(typed, "error")
@@ -196,6 +197,12 @@ func (ui *ChatUI) messagesContent() string {
 				lipgloss.NewStyle().PaddingLeft(1).Render(msg.Content.Text.Content),
 				"",
 			)
+		}
+		if msg.Content.Join != nil && msg.Content.Join.User.UID != ui.self.UID {
+			retLines = append(retLines, fmt.Sprintf("%s joined", getUserShowingName(&msg.Content.Join.User)))
+		}
+		if msg.Content.Leave != nil && msg.Content.Leave.User.UID != ui.self.UID {
+			retLines = append(retLines, fmt.Sprintf("%s left", getUserShowingName(&msg.Content.Leave.User)))
 		}
 	}
 	return strings.Join(retLines, "\n")

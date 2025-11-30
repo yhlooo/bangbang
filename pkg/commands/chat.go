@@ -77,6 +77,7 @@ func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
 	mgr, err := managers.NewManager(managers.Options{
 		Key:           key,
 		OwnerUID:      selfUID,
+		OwnerName:     opts.Name,
 		HTTPAddr:      opts.HTTPAddr,
 		DiscoveryAddr: opts.DiscoveryAddr,
 	})

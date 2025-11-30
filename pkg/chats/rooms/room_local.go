@@ -14,10 +14,11 @@ import (
 )
 
 // NewLocalRoom 创建本地房间实例
-func NewLocalRoom(key keys.HashKey, ownerUID metav1.UID) RoomWithUpstream {
+func NewLocalRoom(key keys.HashKey, ownerUID metav1.UID, ownerName string) RoomWithUpstream {
 	return &localRoom{
 		uid:          metav1.NewUID(),
 		ownerUID:     ownerUID,
+		ownerName:    ownerName,
 		key:          key.Copy(),
 		deduplicator: deduplicators.NewBloomFilter(500, 0.001),
 	}
@@ -25,14 +26,15 @@ func NewLocalRoom(key keys.HashKey, ownerUID metav1.UID) RoomWithUpstream {
 
 // localRoom 是 Room 的本地实现
 type localRoom struct {
-	uid      metav1.UID
-	ownerUID metav1.UID
-	key      keys.HashKey
+	uid       metav1.UID
+	ownerUID  metav1.UID
+	ownerName string
+	key       keys.HashKey
 
 	lock sync.RWMutex
 
 	closed               bool
-	channels             map[chan *chatv1.Message]struct{}
+	channels             map[chan *chatv1.Message]*metav1.ObjectMeta
 	upstream             Room
 	upstreamDeduplicator deduplicators.Deduplicator
 	deduplicator         deduplicators.Deduplicator
@@ -45,6 +47,7 @@ func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
 	return &RoomInfo{
 		UID:                   r.uid,
 		OwnerUID:              r.ownerUID,
+		OwnerName:             r.ownerName,
 		PublishedKeySignature: r.key.PublishedSignature(),
 	}, nil
 }
@@ -52,13 +55,6 @@ func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
 // CreateMessage 创建消息
 func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) error {
 	logger := logr.FromContextOrDiscard(ctx)
-
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	if r.closed {
-		return fmt.Errorf("room already closed")
-	}
 
 	if msg.Meta.UID.IsNil() {
 		msg.Meta.UID = metav1.NewUID()
@@ -70,6 +66,13 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		return nil
 	}
 
+	r.lock.RLock()
+
+	if r.closed {
+		r.lock.RUnlock()
+		return fmt.Errorf("room already closed")
+	}
+
 	for ch := range r.channels {
 		select {
 		case ch <- msg:
@@ -77,30 +80,53 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		}
 	}
 
-	// 转发给上游
-	if r.upstream != nil && !r.upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
-		if err := r.upstream.CreateMessage(ctx, msg); err != nil {
-			return fmt.Errorf("forward to upstream error: %w", err)
-		}
+	if r.upstream == nil || r.upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
+		r.lock.RUnlock()
+		return nil
 	}
+	r.lock.RUnlock()
 
+	// 转发给上游
+	if err := r.upstream.CreateMessage(ctx, msg); err != nil {
+		return fmt.Errorf("forward to upstream error: %w", err)
+	}
 	return nil
 }
 
 // Listen 获取监听消息的信道
-func (r *localRoom) Listen(_ context.Context) (ch <-chan *chatv1.Message, stop func(), err error) {
+func (r *localRoom) Listen(
+	ctx context.Context,
+	user *metav1.ObjectMeta,
+) (ch <-chan *chatv1.Message, stop func(), err error) {
+	logger := logr.FromContextOrDiscard(ctx)
+
 	r.lock.Lock()
-	defer r.lock.Unlock()
 
 	if r.closed {
+		r.lock.Unlock()
 		return nil, nil, fmt.Errorf("room already closed")
 	}
 
 	if r.channels == nil {
-		r.channels = make(map[chan *chatv1.Message]struct{})
+		r.channels = make(map[chan *chatv1.Message]*metav1.ObjectMeta)
 	}
 	msgCh := make(chan *chatv1.Message, 10)
-	r.channels[msgCh] = struct{}{}
+	r.channels[msgCh] = nil
+	if user != nil {
+		r.channels[msgCh] = &metav1.ObjectMeta{}
+		*r.channels[msgCh] = *user
+	}
+	r.lock.Unlock()
+
+	if user != nil {
+		if err := r.CreateMessage(ctx, &chatv1.Message{
+			APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
+			From:    metav1.ObjectMeta{UID: r.uid},
+			Content: chatv1.MessageContent{Join: &chatv1.MembersChangeMessageContent{User: *user}},
+		}); err != nil {
+			logger.Error(err, "send member join message error")
+		}
+	}
 
 	return msgCh, r.stopListen(msgCh), nil
 }
@@ -109,8 +135,17 @@ func (r *localRoom) Listen(_ context.Context) (ch <-chan *chatv1.Message, stop f
 func (r *localRoom) stopListen(ch chan *chatv1.Message) func() {
 	return func() {
 		r.lock.Lock()
-		defer r.lock.Unlock()
+		user := r.channels[ch]
 		delete(r.channels, ch)
+		close(ch)
+		r.lock.Unlock()
+		if user != nil {
+			_ = r.CreateMessage(context.Background(), &chatv1.Message{
+				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
+				From:    metav1.ObjectMeta{UID: r.uid},
+				Content: chatv1.MessageContent{Leave: &chatv1.MembersChangeMessageContent{User: *user}},
+			})
+		}
 	}
 }
 
@@ -120,7 +155,6 @@ func (r *localRoom) Close(_ context.Context) error {
 	defer r.lock.Unlock()
 
 	for ch := range r.channels {
-		close(ch)
 		delete(r.channels, ch)
 	}
 
@@ -156,19 +190,14 @@ func (r *localRoom) SetUpstream(ctx context.Context, room Room) error {
 	logger.V(1).Info(fmt.Sprintf("set upstream: %s", info.UID))
 	r.upstream = room
 	r.upstreamDeduplicator = deduplicators.NewBloomFilter(500, 0.001)
-	go r.listenUpstream(ctx)
+	go r.listenUpstream(ctx, r.upstream, r.upstreamDeduplicator)
 
 	return nil
 }
 
 // listenUpstream 监听上游房间
-func (r *localRoom) listenUpstream(ctx context.Context) {
+func (r *localRoom) listenUpstream(ctx context.Context, upstream Room, upstreamDeduplicator deduplicators.Deduplicator) {
 	logger := logr.FromContextOrDiscard(ctx)
-
-	r.lock.RLock()
-	upstream := r.upstream
-	upstreamDeduplicator := r.upstreamDeduplicator
-	r.lock.RUnlock()
 
 	if upstream == nil {
 		return
@@ -176,14 +205,14 @@ func (r *localRoom) listenUpstream(ctx context.Context) {
 
 	defer func() {
 		r.lock.Lock()
-		defer r.lock.Unlock()
 		if r.upstream == upstream {
 			r.upstream = nil
 		}
+		r.lock.Unlock()
 		_ = upstream.Close(ctx)
 	}()
 
-	ch, stop, err := upstream.Listen(ctx)
+	ch, stop, err := upstream.Listen(ctx, &metav1.ObjectMeta{UID: r.ownerUID, Name: r.ownerName})
 	if err != nil {
 		logger.Error(err, "listen upstream error")
 		return
