@@ -109,11 +109,11 @@ func (s *chatServer) ListenMessages(ctx context.Context, req *ListenMessagesRequ
 		}
 	}
 
-	ch, stop, err := s.room.Listen(ctx, user)
+	ch, err := s.room.Listen(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("listen message in room error: %w", err)
 	}
-	defer stop()
+	defer func() { _ = ch.Close() }()
 
 	ginCTX, ok := ctx.(*gin.Context)
 	if !ok {
@@ -135,7 +135,7 @@ mainLoop:
 			break mainLoop
 		case <-ginCTX.Writer.CloseNotify():
 			break mainLoop
-		case msg, ok = <-ch:
+		case msg, ok = <-ch.Messages():
 			if !ok {
 				break mainLoop
 			}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
+	"github.com/yhlooo/bangbang/pkg/chats/channels"
 )
 
 // NewRemoteRoom 创建远程房间实例
@@ -25,9 +27,9 @@ func NewRemoteRoom(endpoint string) Room {
 type remoteRoom struct {
 	endpoint string
 
-	lock      sync.RWMutex
-	closed    bool
-	stopFuncs []func()
+	lock         sync.RWMutex
+	closed       bool
+	closeChFuncs []func() error
 }
 
 var _ Room = (*remoteRoom)(nil)
@@ -61,14 +63,14 @@ func (r *remoteRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) err
 func (r *remoteRoom) Listen(
 	ctx context.Context,
 	user *metav1.ObjectMeta,
-) (ch <-chan *chatv1.Message, stop func(), err error) {
+) (channels.Channel, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
 	if r.closed {
-		return nil, nil, fmt.Errorf("room already closed")
+		return nil, fmt.Errorf("room already closed")
 	}
 
 	uri := "/messages"
@@ -80,19 +82,20 @@ func (r *remoteRoom) Listen(
 	}
 
 	// 构造请求
-	ctx, cancel := context.WithCancel(ctx)
 	resp, err := r.doGetStreamRequest(ctx, uri)
 	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("make request error: %w", err)
+		return nil, fmt.Errorf("make request error: %w", err)
 	}
 
-	msgCh := make(chan *chatv1.Message, 10)
+	msgCh := channels.NewLocalChannel(10)
+	go func() {
+		<-msgCh.Done()
+		_ = resp.Body.Close()
+	}()
 	go func() {
 		defer func() {
-			close(msgCh)
+			_ = msgCh.Close()
 			_ = resp.Body.Close()
-			cancel()
 		}()
 
 		decoder := json.NewDecoder(resp.Body)
@@ -108,25 +111,29 @@ func (r *remoteRoom) Listen(
 				continue
 			}
 
-			select {
-			case <-ctx.Done():
-				return
-			case msgCh <- msg:
+			if err := msgCh.Send(msg); err != nil {
+				if errors.Is(err, channels.ErrChannelClosed) {
+					return
+				}
+				logger.Error(err, "send message error")
 			}
 		}
 	}()
 
-	r.stopFuncs = append(r.stopFuncs, cancel)
-	return msgCh, cancel, nil
+	r.closeChFuncs = append(r.closeChFuncs, msgCh.Close)
+	return msgCh, nil
 }
 
 // Close 关闭
-func (r *remoteRoom) Close(_ context.Context) error {
+func (r *remoteRoom) Close(ctx context.Context) error {
+	logger := logr.FromContextOrDiscard(ctx)
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.closed = true
-	for _, stop := range r.stopFuncs {
-		stop()
+	for _, closeFunc := range r.closeChFuncs {
+		if err := closeFunc(); err != nil {
+			logger.Error(err, "close message channel error")
+		}
 	}
 	return nil
 }

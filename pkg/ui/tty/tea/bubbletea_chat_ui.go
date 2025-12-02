@@ -51,16 +51,16 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 	ui.vp = viewport.New(30, 5)
 	ui.ctx = ctx
 
-	msgCh, stop, err := ui.room.Listen(ctx, nil)
+	msgCh, err := ui.room.Listen(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("listen messages in room error: %w", err)
 	}
-	defer stop()
+	defer func() { _ = msgCh.Close() }()
 
 	p := tea.NewProgram(ui)
 
 	go func() {
-		for msg := range msgCh {
+		for msg := range msgCh.Messages() {
 			p.Send(msg)
 		}
 	}()

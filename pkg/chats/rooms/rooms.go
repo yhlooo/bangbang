@@ -5,6 +5,7 @@ import (
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
+	"github.com/yhlooo/bangbang/pkg/chats/channels"
 )
 
 // Room 聊天房间
@@ -15,7 +16,7 @@ type Room interface {
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, msg *chatv1.Message) error
 	// Listen 获取监听消息的信道
-	Listen(ctx context.Context, user *metav1.ObjectMeta) (ch <-chan *chatv1.Message, stop func(), err error)
+	Listen(ctx context.Context, user *metav1.ObjectMeta) (channels.Channel, error)
 
 	// Close 关闭
 	Close(ctx context.Context) error

@@ -2,6 +2,7 @@ package rooms
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
+	"github.com/yhlooo/bangbang/pkg/chats/channels"
 	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/deduplicators"
 )
@@ -34,7 +36,7 @@ type localRoom struct {
 	lock sync.RWMutex
 
 	closed       bool
-	channels     map[chan *chatv1.Message]*metav1.ObjectMeta
+	channels     map[channels.ChannelWithSender]*metav1.ObjectMeta
 	upstream     Room
 	deduplicator deduplicators.Deduplicator
 }
@@ -72,10 +74,10 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 		return fmt.Errorf("room already closed")
 	}
 
+	// 发送到各通道
 	for ch := range r.channels {
-		select {
-		case ch <- msg:
-		default:
+		if err := ch.Send(msg); err != nil && !errors.Is(err, channels.ErrChannelClosed) {
+			logger.Error(err, "send message to channel error")
 		}
 	}
 
@@ -86,25 +88,43 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 func (r *localRoom) Listen(
 	ctx context.Context,
 	user *metav1.ObjectMeta,
-) (ch <-chan *chatv1.Message, stop func(), err error) {
+) (channels.Channel, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 
 	r.lock.Lock()
 
 	if r.closed {
 		r.lock.Unlock()
-		return nil, nil, fmt.Errorf("room already closed")
+		return nil, fmt.Errorf("room already closed")
 	}
 
 	if r.channels == nil {
-		r.channels = make(map[chan *chatv1.Message]*metav1.ObjectMeta)
+		r.channels = make(map[channels.ChannelWithSender]*metav1.ObjectMeta)
 	}
-	msgCh := make(chan *chatv1.Message, 10)
+	msgCh := channels.NewLocalChannel(10)
 	r.channels[msgCh] = nil
 	if user != nil {
-		r.channels[msgCh] = &metav1.ObjectMeta{}
-		*r.channels[msgCh] = *user
+		userCopy := *user
+		r.channels[msgCh] = &userCopy
+		go func() {
+			<-msgCh.Done()
+			_ = r.CreateMessage(context.Background(), &chatv1.Message{
+				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
+				From:    metav1.ObjectMeta{UID: r.uid},
+				Content: chatv1.MessageContent{Leave: &chatv1.MembersChangeMessageContent{User: userCopy}},
+			})
+		}()
 	}
+
+	// 顺便清理已经关闭的通道
+	for ch := range r.channels {
+		select {
+		case <-ch.Done():
+			delete(r.channels, ch)
+		default:
+		}
+	}
+
 	r.lock.Unlock()
 
 	if user != nil {
@@ -117,25 +137,7 @@ func (r *localRoom) Listen(
 		}
 	}
 
-	return msgCh, r.stopListen(msgCh), nil
-}
-
-// stopListen 停止监听消息
-func (r *localRoom) stopListen(ch chan *chatv1.Message) func() {
-	return func() {
-		r.lock.Lock()
-		user := r.channels[ch]
-		delete(r.channels, ch)
-		close(ch)
-		r.lock.Unlock()
-		if user != nil {
-			_ = r.CreateMessage(context.Background(), &chatv1.Message{
-				APIMeta: metav1.NewAPIMeta(chatv1.KindMessage),
-				From:    metav1.ObjectMeta{UID: r.uid},
-				Content: chatv1.MessageContent{Leave: &chatv1.MembersChangeMessageContent{User: *user}},
-			})
-		}
-	}
+	return msgCh, nil
 }
 
 // Close 关闭
@@ -144,9 +146,8 @@ func (r *localRoom) Close(_ context.Context) error {
 	defer r.lock.Unlock()
 
 	for ch := range r.channels {
-		delete(r.channels, ch)
+		_ = ch.Close()
 	}
-
 	r.closed = true
 
 	return nil
@@ -204,12 +205,12 @@ func (r *localRoom) forwardToUpstream(
 		_ = upstream.Close(ctx)
 	}()
 
-	ch, stop, err := r.Listen(ctx, nil)
+	ch, err := r.Listen(ctx, nil)
 	if err != nil {
 		logger.Error(err, "listen error")
 		return
 	}
-	defer stop()
+	defer func() { _ = ch.Close() }()
 
 	for {
 		var msg *chatv1.Message
@@ -217,7 +218,7 @@ func (r *localRoom) forwardToUpstream(
 		select {
 		case <-done:
 			return
-		case msg, ok = <-ch:
+		case msg, ok = <-ch.Messages():
 			if !ok {
 				return
 			}
@@ -226,7 +227,7 @@ func (r *localRoom) forwardToUpstream(
 		if upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
 			continue
 		}
-		if err := r.upstream.CreateMessage(ctx, msg); err != nil {
+		if err := upstream.CreateMessage(ctx, msg); err != nil {
 			logger.Error(err, "forward to upstream error")
 		}
 	}
@@ -251,14 +252,14 @@ func (r *localRoom) listenUpstream(
 		_ = upstream.Close(ctx)
 	}()
 
-	ch, stop, err := upstream.Listen(ctx, &metav1.ObjectMeta{UID: r.ownerUID, Name: r.ownerName})
+	ch, err := upstream.Listen(ctx, &metav1.ObjectMeta{UID: r.ownerUID, Name: r.ownerName})
 	if err != nil {
 		logger.Error(err, "listen upstream error")
 		return
 	}
-	defer stop()
+	defer func() { _ = ch.Close() }()
 
-	for msg := range ch {
+	for msg := range ch.Messages() {
 		upstreamDeduplicator.Duplicate(msg.Meta.UID[:])
 		if err := r.CreateMessage(ctx, msg); err != nil {
 			logger.Error(err, "create message error")
