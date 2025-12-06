@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/pflag"
 
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
-	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/managers"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 	uitea "github.com/yhlooo/bangbang/pkg/ui/tty/tea"
 )
 
@@ -61,7 +61,7 @@ func newChatCommand(parentName string) *cobra.Command {
 		Example: exampleBuff.String(),
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runChat(cmd.Context(), opts, keys.HashKey(args[0]))
+			return runChat(cmd.Context(), opts, signatures.Key(args[0]))
 		},
 	}
 
@@ -71,7 +71,7 @@ func newChatCommand(parentName string) *cobra.Command {
 }
 
 // run 运行
-func runChat(ctx context.Context, opts ChatOptions, key keys.HashKey) error {
+func runChat(ctx context.Context, opts ChatOptions, key signatures.Key) error {
 	selfUID := metav1.NewUID()
 
 	mgr, err := managers.NewManager(managers.Options{

@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/discovery"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // NewScanOptions 创建默认 ScanOptions
@@ -56,14 +56,14 @@ func newScanCommand() *cobra.Command {
 			}
 
 			d := discovery.NewUDPDiscoverer(addr)
-			keySign := ""
+			var key signatures.Key
 			if opts.Key != "" {
-				keySign = keys.HashKey(opts.Key).PublishedSignature()
+				key = signatures.Key(opts.Key)
 			}
 
 			ticker := time.NewTicker(opts.Duration + time.Second)
 			for {
-				ret, err := d.Search(ctx, keySign, discovery.SearchOptions{
+				ret, err := d.Search(ctx, key, discovery.SearchOptions{
 					Duration:          opts.Duration,
 					RequestInterval:   opts.RequestInterval,
 					CheckAvailability: opts.CheckAvailability,
@@ -94,12 +94,12 @@ func newScanCommand() *cobra.Command {
 // showScanResult 展示搜索结果
 func showScanResult(result []discovery.Room) {
 	for _, room := range result {
-		fmt.Printf("      UID : %s\n", room.Info.Meta.UID)
-		if ownerUID := room.Info.Owner.Meta.UID; !ownerUID.IsNil() {
+		fmt.Printf("      UID : %s\n", room.Info.UID)
+		if ownerUID := room.Info.Owner.UID; !ownerUID.IsNil() {
 			fmt.Printf("    Owner : %s\n", ownerUID)
 		}
-		if room.Info.KeySignature != "" {
-			fmt.Printf(" Key Sign : %s\n", room.Info.KeySignature)
+		if room.Info.Signature != "" {
+			fmt.Printf("Signature : %s\n", room.Info.Signature)
 		}
 		if len(room.Info.Endpoints) > 0 {
 			fmt.Println("Endpoints :")

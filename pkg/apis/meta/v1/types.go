@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,14 @@ const (
 	KindStatus = "Status"
 )
 
+// Object API 对象
+type Object interface {
+	// IsKind 判断是否指定类型
+	IsKind(kind string) bool
+	// GetMeta 获取对象元信息
+	GetMeta() *ObjectMeta
+}
+
 // APIMeta API 元信息
 type APIMeta struct {
 	// API 版本
@@ -25,11 +34,25 @@ type APIMeta struct {
 }
 
 // IsKind 判断是否指定类型
-func (m APIMeta) IsKind(kind string) bool {
-	if m.Version != Version {
+func (obj *APIMeta) IsKind(kind string) bool {
+	if obj == nil {
 		return false
 	}
-	return m.Kind == kind
+	if obj.Version != Version {
+		return false
+	}
+	return obj.Kind == kind
+}
+
+// DeepCopy 深拷贝
+func (obj *APIMeta) DeepCopy() *APIMeta {
+	if obj == nil {
+		return nil
+	}
+	return &APIMeta{
+		Version: obj.Version,
+		Kind:    obj.Kind,
+	}
 }
 
 // NewAPIMeta 创建 API 元信息
@@ -46,6 +69,27 @@ type ObjectMeta struct {
 	UID UID `json:"uid,omitempty"`
 	// 对象名
 	Name string `json:"name,omitempty"`
+	// 签名
+	Signature string `json:"signature,omitempty"`
+	// 签名时间
+	SignTime time.Time `json:"signTime,omitempty"`
+}
+
+// DeepCopy 深拷贝
+func (obj *ObjectMeta) DeepCopy() *ObjectMeta {
+	if obj == nil {
+		return nil
+	}
+	return &ObjectMeta{
+		UID:       obj.UID,
+		Name:      obj.Name,
+		Signature: obj.Signature,
+	}
+}
+
+// GetMeta 获取对象元信息
+func (obj *ObjectMeta) GetMeta() *ObjectMeta {
+	return obj
 }
 
 // NewUID 创建一个 UID
@@ -59,7 +103,7 @@ type UID uuid.UUID
 // MarshalJSON 序列化为 JSON
 //
 //goland:noinspection GoMixedReceiverTypes
-func (uid *UID) MarshalJSON() ([]byte, error) {
+func (uid UID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(uid.String())
 }
 
@@ -75,21 +119,27 @@ func (uid *UID) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return err
 	}
-	*uid = UID(ret)
+	copy(uid[:], ret[:])
 	return nil
 }
 
 // IsNil 判断是否零值
+//
+//goland:noinspection GoMixedReceiverTypes
 func (uid UID) IsNil() bool {
 	return uuid.UUID(uid) == uuid.Nil
 }
 
 // String 返回字符串形式
+//
+//goland:noinspection GoMixedReceiverTypes
 func (uid UID) String() string {
 	return uuid.UUID(uid).String()
 }
 
 // Short 返回短字符串形式
+//
+//goland:noinspection GoMixedReceiverTypes
 func (uid UID) Short() string {
 	if uid.IsNil() {
 		return ""
@@ -114,4 +164,18 @@ type Status struct {
 // Error 返回字符串形式的错误描述
 func (s *Status) Error() string {
 	return fmt.Sprintf("%s(%d): %s (uid:%s)", s.Reason, s.Code, s.Message, s.Meta.UID)
+}
+
+// DeepCopy 深拷贝
+func (s *Status) DeepCopy() *Status {
+	if s == nil {
+		return nil
+	}
+	return &Status{
+		APIMeta: *s.APIMeta.DeepCopy(),
+		Meta:    *s.Meta.DeepCopy(),
+		Code:    s.Code,
+		Reason:  s.Reason,
+		Message: s.Message,
+	}
 }

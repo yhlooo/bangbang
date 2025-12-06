@@ -35,17 +35,12 @@ type remoteRoom struct {
 var _ Room = (*remoteRoom)(nil)
 
 // Info 获取房间信息
-func (r *remoteRoom) Info(ctx context.Context) (*RoomInfo, error) {
+func (r *remoteRoom) Info(ctx context.Context) (*chatv1.Room, error) {
 	info := &chatv1.Room{}
 	if err := r.doRequest(ctx, http.MethodGet, "/info", nil, info); err != nil {
 		return nil, err
 	}
-	return &RoomInfo{
-		UID:                   info.Meta.UID,
-		OwnerUID:              info.Owner.Meta.UID,
-		OwnerName:             info.Owner.Meta.Name,
-		PublishedKeySignature: info.KeySignature,
-	}, nil
+	return info, nil
 }
 
 // CreateMessage 创建消息

@@ -11,12 +11,12 @@ import (
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/channels"
-	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/deduplicators"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // NewLocalRoom 创建本地房间实例
-func NewLocalRoom(key keys.HashKey, ownerUID metav1.UID, ownerName string) RoomWithUpstream {
+func NewLocalRoom(key signatures.Key, ownerUID metav1.UID, ownerName string) RoomWithUpstream {
 	return &localRoom{
 		uid:          metav1.NewUID(),
 		ownerUID:     ownerUID,
@@ -31,7 +31,7 @@ type localRoom struct {
 	uid       metav1.UID
 	ownerUID  metav1.UID
 	ownerName string
-	key       keys.HashKey
+	key       signatures.Key
 
 	lock sync.RWMutex
 
@@ -44,13 +44,25 @@ type localRoom struct {
 var _ RoomWithUpstream = (*localRoom)(nil)
 
 // Info 获取房间信息
-func (r *localRoom) Info(_ context.Context) (*RoomInfo, error) {
-	return &RoomInfo{
-		UID:                   r.uid,
-		OwnerUID:              r.ownerUID,
-		OwnerName:             r.ownerName,
-		PublishedKeySignature: r.key.PublishedSignature(),
-	}, nil
+func (r *localRoom) Info(_ context.Context) (*chatv1.Room, error) {
+	info := &chatv1.Room{
+		APIMeta: metav1.NewAPIMeta(chatv1.KindRoom),
+		ObjectMeta: metav1.ObjectMeta{
+			UID: r.uid,
+		},
+		Owner: chatv1.User{
+			APIMeta: metav1.NewAPIMeta(chatv1.KindUser),
+			ObjectMeta: metav1.ObjectMeta{
+				UID:  r.ownerUID,
+				Name: r.ownerName,
+			},
+		},
+	}
+	if err := signatures.HS256SignAPIObject(r.key, info); err != nil {
+		return nil, fmt.Errorf("sign room info error: %w", err)
+	}
+
+	return info, nil
 }
 
 // CreateMessage 创建消息
@@ -60,13 +72,13 @@ func (r *localRoom) CreateMessage(ctx context.Context, msg *chatv1.Message) erro
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	if msg.Meta.UID.IsNil() {
-		msg.Meta.UID = metav1.NewUID()
+	if msg.UID.IsNil() {
+		msg.UID = metav1.NewUID()
 	}
 
 	// 去重
-	if r.deduplicator.Duplicate(msg.Meta.UID[:]) {
-		logger.V(1).Info(fmt.Sprintf("duplicated message: %s", msg.Meta.UID))
+	if r.deduplicator.Duplicate(msg.UID[:]) {
+		logger.V(1).Info(fmt.Sprintf("duplicated message: %s", msg.UID))
 		return nil
 	}
 
@@ -224,7 +236,7 @@ func (r *localRoom) forwardToUpstream(
 			}
 		}
 
-		if upstreamDeduplicator.Duplicate(msg.Meta.UID[:]) {
+		if upstreamDeduplicator.Duplicate(msg.UID[:]) {
 			continue
 		}
 		if err := upstream.CreateMessage(ctx, msg); err != nil {
@@ -260,7 +272,7 @@ func (r *localRoom) listenUpstream(
 	defer func() { _ = ch.Close() }()
 
 	for msg := range ch.Messages() {
-		upstreamDeduplicator.Duplicate(msg.Meta.UID[:])
+		upstreamDeduplicator.Duplicate(msg.UID[:])
 		if err := r.CreateMessage(ctx, msg); err != nil {
 			logger.Error(err, "create message error")
 		}

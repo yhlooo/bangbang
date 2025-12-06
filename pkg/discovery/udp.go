@@ -14,6 +14,7 @@ import (
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/rooms"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // NewUDPDiscoverer 创建基于 UDP 的发现器
@@ -31,8 +32,9 @@ type UDPDiscoverer struct {
 var _ Discoverer = (*UDPDiscoverer)(nil)
 
 // Search 搜索房间
-func (d *UDPDiscoverer) Search(ctx context.Context, keySignature string, opts SearchOptions) ([]Room, error) {
-	logger := logr.FromContextOrDiscard(ctx)
+func (d *UDPDiscoverer) Search(ctx context.Context, key signatures.Key, opts SearchOptions) ([]Room, error) {
+	logger := logr.FromContextOrDiscard(ctx).WithName("discoverer")
+	ctx = logr.NewContext(ctx, logger)
 
 	if opts.Duration == 0 {
 		opts.Duration = 3 * time.Second
@@ -55,10 +57,10 @@ func (d *UDPDiscoverer) Search(ctx context.Context, keySignature string, opts Se
 		return nil, fmt.Errorf("dial udp %q error: %w", addr.String(), err)
 	}
 
-	go d.runSender(ctx, writeConn, keySignature, int(opts.Duration/opts.RequestInterval), opts.RequestInterval)
+	go d.runSender(ctx, writeConn, key.Copy(), int(opts.Duration/opts.RequestInterval), opts.RequestInterval)
 
 	logger.V(1).Info("listening rooms ...")
-	ret, err := d.runListener(ctx, readConn, keySignature, opts.RequestInterval)
+	ret, err := d.runListener(ctx, readConn, key.Copy(), opts.RequestInterval)
 	if err != nil {
 		return nil, fmt.Errorf("run listener error: %w", err)
 	}
@@ -66,7 +68,7 @@ func (d *UDPDiscoverer) Search(ctx context.Context, keySignature string, opts Se
 
 	if opts.CheckAvailability {
 		logger.V(1).Info("checking availability for rooms ...")
-		d.checkAvailability(ctx, ret)
+		d.checkAvailability(ctx, key.Copy(), ret)
 	}
 
 	return ret, nil
@@ -76,10 +78,11 @@ func (d *UDPDiscoverer) Search(ctx context.Context, keySignature string, opts Se
 func (d *UDPDiscoverer) runListener(
 	ctx context.Context,
 	conn *net.UDPConn,
-	keySignature string,
+	key signatures.Key,
 	timeout time.Duration,
 ) ([]Room, error) {
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := logr.FromContextOrDiscard(ctx).WithName("listener")
+	ctx = logr.NewContext(ctx, logger)
 
 	roomMap := map[metav1.UID]chatv1.Room{}
 
@@ -107,19 +110,26 @@ func (d *UDPDiscoverer) runListener(
 
 		var room chatv1.Room
 		if err := json.Unmarshal(buffer[:n], &room); err != nil {
-			logger.Error(err, "decode room error: %s", string(buffer[:n]))
+			logger.Error(err, fmt.Sprintf("decode room error: %s", string(buffer[:n])))
 			continue
 		}
 
 		if !room.IsKind(chatv1.KindRoom) {
 			continue
 		}
-		if keySignature != "" && room.KeySignature != keySignature {
-			continue
+		if key != nil {
+			now := time.Now()
+			if err := signatures.HS256VerifyAPIObject(
+				key, &room,
+				now.Add(-10*time.Minute), now.Add(10*time.Minute),
+			); err != nil {
+				logger.V(1).Info(fmt.Sprintf("signature verification error: %s", err))
+				continue
+			}
 		}
 
-		logger.V(1).Info(fmt.Sprintf("found room %q", room.Meta.UID))
-		roomMap[room.Meta.UID] = room
+		logger.V(1).Info(fmt.Sprintf("found room %q", room.UID))
+		roomMap[room.UID] = room
 	}
 
 	if len(roomMap) == 0 {
@@ -133,7 +143,7 @@ func (d *UDPDiscoverer) runListener(
 		})
 	}
 	sort.Slice(ret, func(i, j int) bool {
-		return ret[i].Info.Meta.UID.String() < ret[j].Info.Meta.UID.String()
+		return ret[i].Info.UID.String() < ret[j].Info.UID.String()
 	})
 
 	return ret, nil
@@ -143,23 +153,33 @@ func (d *UDPDiscoverer) runListener(
 func (d *UDPDiscoverer) runSender(
 	ctx context.Context,
 	conn *net.UDPConn,
-	keySignature string,
+	key signatures.Key,
 	n int,
 	interval time.Duration,
 ) {
-	req, _ := json.Marshal(&chatv1.RoomRequest{
-		APIMeta:      metav1.NewAPIMeta(chatv1.KindRoomRequest),
-		KeySignature: keySignature,
-	})
-	req = append(req, '\n')
+	req := &chatv1.RoomRequest{
+		APIMeta:    metav1.NewAPIMeta(chatv1.KindRoomRequest),
+		ObjectMeta: metav1.ObjectMeta{UID: metav1.NewUID()},
+	}
+	var reqRaw []byte
+	if key == nil {
+		reqRaw, _ = json.Marshal(req)
+		reqRaw = append(reqRaw, '\n')
+	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := logr.FromContextOrDiscard(ctx).WithName("sender")
 	for i := 0; i < n; i++ {
+		if key != nil {
+			_ = signatures.HS256SignAPIObject(key, req)
+			reqRaw, _ = json.Marshal(req)
+			reqRaw = append(reqRaw, '\n')
+		}
+
 		logger.V(1).Info("sending room request")
-		_, err := conn.Write(req)
+		_, err := conn.Write(reqRaw)
 		if err != nil {
 			logger.Error(err, "send room request error")
 		}
@@ -172,7 +192,7 @@ func (d *UDPDiscoverer) runSender(
 }
 
 // checkAvailability 检查房间可访问性
-func (d *UDPDiscoverer) checkAvailability(ctx context.Context, roomList []Room) {
+func (d *UDPDiscoverer) checkAvailability(ctx context.Context, key signatures.Key, roomList []Room) {
 	logger := logr.FromContextOrDiscard(ctx)
 	for i, room := range roomList {
 		available := ""
@@ -183,23 +203,29 @@ func (d *UDPDiscoverer) checkAvailability(ctx context.Context, roomList []Room) 
 			if err != nil {
 				logger.V(1).Info(fmt.Sprintf(
 					"endpoint %q for room %q not available: %v",
-					endpoint, room.Info.Meta.UID, err,
+					endpoint, room.Info.UID, err,
 				))
 				continue
 			}
-			if info.UID != room.Info.Meta.UID {
+			if info.UID != room.Info.UID {
 				logger.V(1).Info(fmt.Sprintf(
 					"endpoint %q for room %q not available: uid not match: %q",
-					endpoint, room.Info.Meta.UID, info.UID,
+					endpoint, room.Info.UID, info.UID,
 				))
 				continue
 			}
-			if info.PublishedKeySignature != room.Info.KeySignature {
-				logger.V(1).Info(fmt.Sprintf(
-					"endpoint %q for room %q not available: key signature not match: %q (expected %q)",
-					endpoint, room.Info.Meta.UID, info.PublishedKeySignature, room.Info.KeySignature,
-				))
-				continue
+			if key != nil {
+				now := time.Now()
+				if err := signatures.HS256VerifyAPIObject(
+					key, info,
+					now.Add(-10*time.Minute), now.Add(10*time.Minute),
+				); err != nil {
+					logger.V(1).Info(fmt.Sprintf(
+						"endpoint %q for room %q not available, signature verification error: %s",
+						endpoint, room.Info.UID, err.Error(),
+					))
+					continue
+				}
 			}
 			available = endpoint
 			break
@@ -207,18 +233,19 @@ func (d *UDPDiscoverer) checkAvailability(ctx context.Context, roomList []Room) 
 
 		if available != "" {
 			roomList[i].AvailableEndpoint = available
-			logger.V(1).Info(fmt.Sprintf("room %q available on %q", room.Info.Meta.UID, available))
+			logger.V(1).Info(fmt.Sprintf("room %q available on %q", room.Info.UID, available))
 		} else {
-			logger.V(1).Info(fmt.Sprintf("room %q has no available endpoint", room.Info.Meta.UID))
+			logger.V(1).Info(fmt.Sprintf("room %q has no available endpoint", room.Info.UID))
 		}
 	}
 }
 
 // NewUDPTransponder 创建基于 UDP 的应答机
-func NewUDPTransponder(addr string, room *chatv1.Room) *UDPTransponder {
+func NewUDPTransponder(addr string, room *chatv1.Room, key signatures.Key) *UDPTransponder {
 	return &UDPTransponder{
 		addr: addr,
-		room: room,
+		room: room.DeepCopy(),
+		key:  key.Copy(),
 	}
 }
 
@@ -228,6 +255,7 @@ type UDPTransponder struct {
 
 	addr string
 	room *chatv1.Room
+	key  signatures.Key
 
 	readConn  *net.UDPConn
 	writeConn *net.UDPConn
@@ -257,17 +285,10 @@ func (t *UDPTransponder) Start(ctx context.Context) error {
 		}
 
 		finalErr = nil
-		publishMsg, err := json.Marshal(t.room)
-		if err != nil {
-			finalErr = fmt.Errorf("marshal room info to json error: %w", err)
-			return
-		}
-		publishMsg = append(publishMsg, '\n')
-
 		ch := make(chan struct{})
 
 		go t.runListener(ctx, ch)
-		go t.runSender(ctx, ch, publishMsg)
+		go t.runSender(ctx, ch, t.room.DeepCopy())
 
 		return
 	})
@@ -276,7 +297,7 @@ func (t *UDPTransponder) Start(ctx context.Context) error {
 
 // runListener 运行监听器
 func (t *UDPTransponder) runListener(ctx context.Context, ch chan<- struct{}) {
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := logr.FromContextOrDiscard(ctx).WithName("transponder.listener")
 
 	defer close(ch)
 
@@ -303,8 +324,15 @@ func (t *UDPTransponder) runListener(ctx context.Context, ch chan<- struct{}) {
 		if !req.IsKind(chatv1.KindRoomRequest) {
 			continue
 		}
-		if req.KeySignature != "" && req.KeySignature != t.room.KeySignature {
-			continue
+		if req.Signature != "" {
+			now := time.Now()
+			if err := signatures.HS256VerifyAPIObject(
+				t.key, &req,
+				now.Add(-10*time.Minute), now.Add(10*time.Minute),
+			); err != nil {
+				logger.V(1).Info(fmt.Sprintf("signature verification error: %s", err))
+				continue
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -315,8 +343,8 @@ func (t *UDPTransponder) runListener(ctx context.Context, ch chan<- struct{}) {
 }
 
 // runSender 运行发送器
-func (t *UDPTransponder) runSender(ctx context.Context, ch <-chan struct{}, publishMsg []byte) {
-	logger := logr.FromContextOrDiscard(ctx)
+func (t *UDPTransponder) runSender(ctx context.Context, ch <-chan struct{}, room *chatv1.Room) {
+	logger := logr.FromContextOrDiscard(ctx).WithName("transponder.sender")
 
 	defer func() {
 		_ = t.readConn.Close()
@@ -332,6 +360,17 @@ func (t *UDPTransponder) runSender(ctx context.Context, ch <-chan struct{}, publ
 				return
 			}
 		}
+
+		if err := signatures.HS256SignAPIObject(t.key, room); err != nil {
+			logger.Error(err, "sign room info error")
+			continue
+		}
+		publishMsg, err := json.Marshal(room)
+		if err != nil {
+			logger.Error(err, "marshal room info to json error")
+			continue
+		}
+		publishMsg = append(publishMsg, '\n')
 
 		if _, err := t.writeConn.Write(publishMsg); err != nil {
 			logger.Error(err, "publish error")

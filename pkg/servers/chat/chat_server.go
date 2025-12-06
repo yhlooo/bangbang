@@ -66,18 +66,8 @@ func (s *chatServer) GetInfo(ctx context.Context, _ *EmptyRequest) (*chatv1.Room
 	if err != nil {
 		return nil, fmt.Errorf("get room info error: %w", err)
 	}
-	return &chatv1.Room{
-		APIMeta: metav1.NewAPIMeta(chatv1.KindRoom),
-		Meta:    metav1.ObjectMeta{UID: info.UID},
-		Owner: chatv1.User{
-			APIMeta: metav1.NewAPIMeta(chatv1.KindUser),
-			Meta: metav1.ObjectMeta{
-				UID:  info.OwnerUID,
-				Name: info.OwnerName,
-			},
-		},
-		KeySignature: info.PublishedKeySignature,
-	}, nil
+
+	return info, nil
 }
 
 // CreateMessage 创建消息
@@ -141,14 +131,14 @@ mainLoop:
 			}
 		}
 
-		logger.Info(fmt.Sprintf("send message %q to client", msg.Meta.UID))
+		logger.Info(fmt.Sprintf("send message %q to client", msg.UID))
 		raw, err := json.Marshal(msg)
 		if err != nil {
-			return nil, fmt.Errorf("marshal message %q to json error: %w", msg.Meta.UID, err)
+			return nil, fmt.Errorf("marshal message %q to json error: %w", msg.UID, err)
 		}
 		_, err = fmt.Fprintln(ginCTX.Writer, string(raw))
 		if err != nil {
-			return nil, fmt.Errorf("write message %q to response error: %w", msg.Meta.UID, err)
+			return nil, fmt.Errorf("write message %q to response error: %w", msg.UID, err)
 		}
 		ginCTX.Writer.Flush()
 	}

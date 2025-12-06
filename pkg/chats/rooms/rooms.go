@@ -11,7 +11,7 @@ import (
 // Room 聊天房间
 type Room interface {
 	// Info 获取房间信息
-	Info(ctx context.Context) (*RoomInfo, error)
+	Info(ctx context.Context) (*chatv1.Room, error)
 
 	// CreateMessage 创建消息
 	CreateMessage(ctx context.Context, msg *chatv1.Message) error
@@ -29,12 +29,4 @@ type RoomWithUpstream interface {
 	Upstream() Room
 	// SetUpstream 设置上游房间
 	SetUpstream(ctx context.Context, room Room) error
-}
-
-// RoomInfo 房间信息
-type RoomInfo struct {
-	UID                   metav1.UID
-	OwnerUID              metav1.UID
-	OwnerName             string
-	PublishedKeySignature string
 }

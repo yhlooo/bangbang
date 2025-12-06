@@ -10,17 +10,16 @@ import (
 
 	"github.com/go-logr/logr"
 
-	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
-	"github.com/yhlooo/bangbang/pkg/chats/keys"
 	"github.com/yhlooo/bangbang/pkg/chats/rooms"
 	"github.com/yhlooo/bangbang/pkg/discovery"
 	"github.com/yhlooo/bangbang/pkg/servers"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // Options 运行选项
 type Options struct {
-	Key keys.HashKey
+	Key signatures.Key
 	// 房间所有者 UID
 	OwnerUID metav1.UID
 	// 房间所有者名
@@ -111,7 +110,7 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 				continue
 			}
 
-			roomList, err := mgr.discoverer.Search(ctx, selfRoom.PublishedKeySignature, discovery.SearchOptions{
+			roomList, err := mgr.discoverer.Search(ctx, mgr.opts.Key, discovery.SearchOptions{
 				CheckAvailability: true,
 			})
 			if err != nil {
@@ -120,13 +119,13 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 			}
 
 			for _, room := range roomList {
-				if room.Info.Meta.UID == selfRoom.UID {
+				if room.Info.UID == selfRoom.UID {
 					// 跳过自己房间
 					continue
 				}
 				if room.AvailableEndpoint == "" {
 					// 跳过不可用的
-					logger.V(1).Info(fmt.Sprintf("skip unavailable room: %s", room.Info.Meta.UID))
+					logger.V(1).Info(fmt.Sprintf("skip unavailable room: %s", room.Info.UID))
 					continue
 				}
 
@@ -149,21 +148,12 @@ func (mgr *defaultManager) StartTransponder(ctx context.Context) error {
 		return fmt.Errorf("get self room info error: %w", err)
 	}
 
-	endpoints, err := mgr.getEndpoints(ctx)
+	selfRoom.Endpoints, err = mgr.getEndpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("get endpoints error: %w", err)
 	}
 
-	t := discovery.NewUDPTransponder(mgr.opts.DiscoveryAddr, &chatv1.Room{
-		APIMeta: metav1.NewAPIMeta(chatv1.KindRoom),
-		Meta:    metav1.ObjectMeta{UID: selfRoom.UID},
-		Owner: chatv1.User{
-			APIMeta: metav1.NewAPIMeta(chatv1.KindUser),
-			Meta:    metav1.ObjectMeta{UID: selfRoom.OwnerUID},
-		},
-		KeySignature: selfRoom.PublishedKeySignature,
-		Endpoints:    endpoints,
-	})
+	t := discovery.NewUDPTransponder(mgr.opts.DiscoveryAddr, selfRoom, mgr.opts.Key)
 
 	return t.Start(ctx)
 }

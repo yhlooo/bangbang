@@ -10,22 +10,50 @@ const (
 // Room 房间
 type Room struct {
 	metav1.APIMeta
-	Meta metav1.ObjectMeta `json:"meta,omitempty"`
+	metav1.ObjectMeta `json:"meta,omitempty"`
 
 	// 房主
 	Owner User `json:"owner,omitempty"`
 
-	// 密钥签名
-	KeySignature string `json:"keySignature,omitempty"`
 	// 访问端点地址
 	Endpoints []string `json:"endpoints,omitempty"`
+}
+
+var _ metav1.Object = (*Room)(nil)
+
+// DeepCopy 深拷贝
+func (obj *Room) DeepCopy() *Room {
+	if obj == nil {
+		return nil
+	}
+	var endpoints []string
+	if obj.Endpoints != nil {
+		endpoints = make([]string, len(obj.Endpoints))
+		copy(endpoints, obj.Endpoints)
+	}
+	return &Room{
+		APIMeta:    *obj.APIMeta.DeepCopy(),
+		ObjectMeta: *obj.ObjectMeta.DeepCopy(),
+		Owner:      *obj.Owner.DeepCopy(),
+		Endpoints:  endpoints,
+	}
 }
 
 // RoomRequest 房间请求
 type RoomRequest struct {
 	metav1.APIMeta
-	Meta metav1.ObjectMeta `json:"meta,omitempty"`
+	metav1.ObjectMeta `json:"meta,omitempty"`
+}
 
-	// 密钥签名
-	KeySignature string `json:"keySignature,omitempty"`
+var _ metav1.Object = (*RoomRequest)(nil)
+
+// DeepCopy 深拷贝
+func (obj *RoomRequest) DeepCopy() *RoomRequest {
+	if obj == nil {
+		return nil
+	}
+	return &RoomRequest{
+		APIMeta:    *obj.APIMeta.DeepCopy(),
+		ObjectMeta: *obj.ObjectMeta.DeepCopy(),
+	}
 }

@@ -5,12 +5,13 @@ import (
 	"time"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // Discoverer 发现器
 
 type Discoverer interface {
-	Search(ctx context.Context, keySignature string, opts SearchOptions) ([]Room, error)
+	Search(ctx context.Context, key signatures.Key, opts SearchOptions) ([]Room, error)
 }
 
 // SearchOptions 搜索选项
