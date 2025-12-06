@@ -64,6 +64,7 @@ type defaultManager struct {
 	discoverer discovery.Discoverer
 
 	listenAddr net.Addr
+	certSign   string
 }
 
 var _ Manager = (*defaultManager)(nil)
@@ -75,7 +76,7 @@ func (mgr *defaultManager) SelfRoom(_ context.Context) rooms.Room {
 
 // StartServer 开始运行 HTTP 服务
 func (mgr *defaultManager) StartServer(ctx context.Context) (<-chan struct{}, error) {
-	addr, done, err := servers.RunServer(ctx, servers.Options{
+	addr, certSign, done, err := servers.RunServer(ctx, servers.Options{
 		ListenAddr: mgr.opts.HTTPAddr,
 		Room:       mgr.SelfRoom(ctx),
 	})
@@ -83,6 +84,7 @@ func (mgr *defaultManager) StartServer(ctx context.Context) (<-chan struct{}, er
 		return nil, err
 	}
 	mgr.listenAddr = addr
+	mgr.certSign = certSign
 	return done, nil
 }
 
@@ -112,6 +114,7 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 
 			roomList, err := mgr.discoverer.Search(ctx, mgr.opts.Key, discovery.SearchOptions{
 				CheckAvailability: true,
+				Exclude:           []metav1.UID{selfRoom.UID},
 			})
 			if err != nil {
 				logger.Error(err, "search rooms error")
@@ -129,7 +132,10 @@ func (mgr *defaultManager) StartSearchUpstream(ctx context.Context) error {
 					continue
 				}
 
-				if err := mgr.selfRoom.SetUpstream(ctx, rooms.NewRemoteRoom(room.AvailableEndpoint)); err != nil {
+				if err := mgr.selfRoom.SetUpstream(
+					ctx,
+					rooms.NewRemoteRoom(room.AvailableEndpoint, room.Info.CertSign),
+				); err != nil {
 					logger.Error(err, "set upstream error")
 					continue
 				}
@@ -152,6 +158,7 @@ func (mgr *defaultManager) StartTransponder(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get endpoints error: %w", err)
 	}
+	selfRoom.CertSign = mgr.certSign
 
 	t := discovery.NewUDPTransponder(mgr.opts.DiscoveryAddr, selfRoom, mgr.opts.Key)
 
@@ -224,7 +231,7 @@ func (mgr *defaultManager) getEndpoints(ctx context.Context) ([]string, error) {
 
 	ret := make([]string, len(ips))
 	for i, ip := range ips {
-		ret[i] = "http://" + (&net.TCPAddr{IP: ip, Port: port}).String()
+		ret[i] = "https://" + (&net.TCPAddr{IP: ip, Port: port}).String()
 	}
 
 	return ret, nil

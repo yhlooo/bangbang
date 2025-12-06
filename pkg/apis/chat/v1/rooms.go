@@ -14,7 +14,8 @@ type Room struct {
 
 	// 房主
 	Owner User `json:"owner,omitempty"`
-
+	// 证书签名
+	CertSign string `json:"certSign,omitempty"`
 	// 访问端点地址
 	Endpoints []string `json:"endpoints,omitempty"`
 }
@@ -35,6 +36,7 @@ func (obj *Room) DeepCopy() *Room {
 		APIMeta:    *obj.APIMeta.DeepCopy(),
 		ObjectMeta: *obj.ObjectMeta.DeepCopy(),
 		Owner:      *obj.Owner.DeepCopy(),
+		CertSign:   obj.CertSign,
 		Endpoints:  endpoints,
 	}
 }

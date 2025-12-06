@@ -101,6 +101,9 @@ func showScanResult(result []discovery.Room) {
 		if room.Info.Signature != "" {
 			fmt.Printf("Signature : %s\n", room.Info.Signature)
 		}
+		if room.Info.CertSign != "" {
+			fmt.Printf("Cert Sign : %s\n", room.Info.CertSign)
+		}
 		if len(room.Info.Endpoints) > 0 {
 			fmt.Println("Endpoints :")
 			for _, endpoint := range room.Info.Endpoints {

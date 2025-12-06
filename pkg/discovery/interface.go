@@ -5,6 +5,7 @@ import (
 	"time"
 
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
+	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
@@ -22,6 +23,8 @@ type SearchOptions struct {
 	RequestInterval time.Duration
 	// 检查可用性
 	CheckAvailability bool
+	// 排除的房间
+	Exclude []metav1.UID
 }
 
 // Room 房间

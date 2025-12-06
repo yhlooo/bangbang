@@ -3,6 +3,8 @@ package rooms
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,16 +18,29 @@ import (
 	chatv1 "github.com/yhlooo/bangbang/pkg/apis/chat/v1"
 	metav1 "github.com/yhlooo/bangbang/pkg/apis/meta/v1"
 	"github.com/yhlooo/bangbang/pkg/chats/channels"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // NewRemoteRoom 创建远程房间实例
-func NewRemoteRoom(endpoint string) Room {
-	return &remoteRoom{endpoint: endpoint}
+func NewRemoteRoom(endpoint string, certSign string) Room {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify:    true,
+				VerifyPeerCertificate: verifyCertFunc(certSign),
+			},
+		},
+	}
+	return &remoteRoom{
+		endpoint: endpoint,
+		client:   client,
+	}
 }
 
 // remoteRoom 是基于 API 访问远程房间的实现的 Room
 type remoteRoom struct {
 	endpoint string
+	client   *http.Client
 
 	lock         sync.RWMutex
 	closed       bool
@@ -142,7 +157,7 @@ func (r *remoteRoom) doRequest(ctx context.Context, method, uri string, reqData,
 	}
 
 	// 发送请求
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request error: %w", err)
 	}
@@ -187,7 +202,7 @@ func (r *remoteRoom) doGetStreamRequest(ctx context.Context, uri string) (*http.
 	}
 
 	// 发送请求
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request error: %w", err)
 	}
@@ -219,4 +234,17 @@ func (r *remoteRoom) makeRequest(ctx context.Context, method, uri string, reqDat
 		fmt.Sprintf("%s/chat/v1%s", r.endpoint, uri),
 		reqBody,
 	)
+}
+
+// verifyCertFunc 校验证书方法
+func verifyCertFunc(expectedSign string) func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	return func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return fmt.Errorf("empty certificates")
+		}
+		if sign := signatures.SignCert(rawCerts[0]); sign != expectedSign {
+			return fmt.Errorf("invalid certificate, signature mismatch: %q (expected %q)", sign, expectedSign)
+		}
+		return nil
+	}
 }

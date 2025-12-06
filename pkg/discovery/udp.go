@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -60,7 +61,7 @@ func (d *UDPDiscoverer) Search(ctx context.Context, key signatures.Key, opts Sea
 	go d.runSender(ctx, writeConn, key.Copy(), int(opts.Duration/opts.RequestInterval), opts.RequestInterval)
 
 	logger.V(1).Info("listening rooms ...")
-	ret, err := d.runListener(ctx, readConn, key.Copy(), opts.RequestInterval)
+	ret, err := d.runListener(ctx, readConn, key.Copy(), opts.RequestInterval, opts.Exclude)
 	if err != nil {
 		return nil, fmt.Errorf("run listener error: %w", err)
 	}
@@ -80,6 +81,7 @@ func (d *UDPDiscoverer) runListener(
 	conn *net.UDPConn,
 	key signatures.Key,
 	timeout time.Duration,
+	exclude []metav1.UID,
 ) ([]Room, error) {
 	logger := logr.FromContextOrDiscard(ctx).WithName("listener")
 	ctx = logr.NewContext(ctx, logger)
@@ -115,6 +117,9 @@ func (d *UDPDiscoverer) runListener(
 		}
 
 		if !room.IsKind(chatv1.KindRoom) {
+			continue
+		}
+		if slices.Contains(exclude, room.UID) {
 			continue
 		}
 		if key != nil {
@@ -198,7 +203,7 @@ func (d *UDPDiscoverer) checkAvailability(ctx context.Context, key signatures.Ke
 		available := ""
 		for _, endpoint := range room.Info.Endpoints {
 			subCTX, cancel := context.WithTimeout(ctx, time.Second)
-			info, err := rooms.NewRemoteRoom(endpoint).Info(subCTX)
+			info, err := rooms.NewRemoteRoom(endpoint, room.Info.CertSign).Info(subCTX)
 			cancel()
 			if err != nil {
 				logger.V(1).Info(fmt.Sprintf(

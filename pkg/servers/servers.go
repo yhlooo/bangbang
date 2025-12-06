@@ -2,9 +2,11 @@ package servers
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"net"
 	"net/http"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/yhlooo/bangbang/pkg/log"
 	"github.com/yhlooo/bangbang/pkg/servers/chat"
 	"github.com/yhlooo/bangbang/pkg/servers/common"
+	"github.com/yhlooo/bangbang/pkg/signatures"
 )
 
 // Options 选项
@@ -31,7 +34,7 @@ func (o *Options) Complete() {
 }
 
 // RunServer 运行服务
-func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, error) {
+func RunServer(ctx context.Context, opts Options) (net.Addr, string, <-chan struct{}, error) {
 	opts.Complete()
 
 	logger := logr.FromContextOrDiscard(ctx)
@@ -42,12 +45,32 @@ func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, er
 
 	r := newGin(ctx, opts.Room, log.WriterFromContext(ctx))
 	srv := &http.Server{
-		Handler: r,
+		Handler:  r,
+		ErrorLog: stdlog.New(log.WriterFromContext(ctx), "", stdlog.LstdFlags),
 	}
 
-	l, err := net.Listen("tcp", opts.ListenAddr)
+	// 生成ECC自签名证书
+	certPEM, keyPEM, err := GenerateECCCertificate("bangbang")
 	if err != nil {
-		return nil, nil, fmt.Errorf("listen on %q error: %w", opts.ListenAddr, err)
+		return nil, "", nil, fmt.Errorf("generate certificate error: %w", err)
+	}
+
+	// 创建证书对
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("create certificate pair error: %w", err)
+	}
+
+	// 配置TLS
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// 监听
+	l, err := tls.Listen("tcp", opts.ListenAddr, tlsConfig)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("listen on %q error: %w", opts.ListenAddr, err)
 	}
 	logger.Info(fmt.Sprintf("serve on %s", l.Addr().String()))
 
@@ -65,7 +88,7 @@ func RunServer(ctx context.Context, opts Options) (net.Addr, <-chan struct{}, er
 		}
 	}()
 
-	return l.Addr(), done, nil
+	return l.Addr(), signatures.SignCert(cert.Leaf.Raw), done, nil
 }
 
 func newGin(reqCTX context.Context, room rooms.Room, logWriter io.Writer) *gin.Engine {
